@@ -725,3 +725,77 @@ func containsHelper(s, substr string) bool {
 	}
 	return false
 }
+
+// ==================== Validation Tests ====================
+
+// TestBuild_NoTransitions tests that building without transitions fails
+func TestBuild_NoTransitions(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	_, err := builder.Build("TestBuild_NoTransitions")
+	if !errors.Is(err, ErrNoTransitionsDefined) {
+		t.Errorf("Expected ErrNoTransitionsDefined, got %v", err)
+	}
+}
+
+// TestBuild_DuplicateTransition tests that duplicate transitions are detected
+func TestBuild_DuplicateTransition(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	// Add the same transition twice
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	_, err := builder.Build("TestBuild_DuplicateTransition")
+	if !errors.Is(err, ErrDuplicateTransition) {
+		t.Errorf("Expected ErrDuplicateTransition, got %v", err)
+	}
+}
+
+// TestBuild_SameSourceEventDifferentTarget tests that same source+event to different targets is allowed
+func TestBuild_SameSourceEventDifferentTarget(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	// Same source and event, but different targets - should be allowed
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		When(&valueCondition{expectedValue: "toB"}).
+		Perform(&noopAction{})
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateC).
+		On(Event1).
+		When(&valueCondition{expectedValue: "toC"}).
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestBuild_SameSourceEventDifferentTarget")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	defer RemoveStateMachine("TestBuild_SameSourceEventDifferentTarget")
+
+	// Verify both transitions work
+	newState, err := sm.FireEvent(StateA, Event1, testPayload{Value: "toB"})
+	if err != nil || newState != StateB {
+		t.Errorf("Expected StateB, got %v (err: %v)", newState, err)
+	}
+
+	newState, err = sm.FireEvent(StateA, Event1, testPayload{Value: "toC"})
+	if err != nil || newState != StateC {
+		t.Errorf("Expected StateC, got %v (err: %v)", newState, err)
+	}
+}

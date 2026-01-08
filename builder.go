@@ -1,5 +1,7 @@
 package fsm
 
+import "fmt"
+
 // FromStep Step marker interfaces to enforce the correct order of method calls
 type FromStep interface{}
 type ToStep interface{}
@@ -170,6 +172,12 @@ func (b *StateMachineBuilder[S, E, P]) ExternalParallelTransition() ExternalPara
 //	The built state machine and possible error
 func (b *StateMachineBuilder[S, E, P]) Build(machineId string) (StateMachine[S, E, P], error) {
 	b.stateMachine.id = machineId
+
+	// Validate the state machine configuration
+	if err := b.validate(); err != nil {
+		return nil, err
+	}
+
 	b.stateMachine.SetReady(true)
 
 	// Register the state machine in a factory
@@ -178,6 +186,31 @@ func (b *StateMachineBuilder[S, E, P]) Build(machineId string) (StateMachine[S, 
 		return nil, err
 	}
 	return b.stateMachine, nil
+}
+
+// validate checks the state machine configuration for errors
+func (b *StateMachineBuilder[S, E, P]) validate() error {
+	// Check if any transitions are defined
+	if len(b.stateMachine.stateMap) == 0 {
+		return ErrNoTransitionsDefined
+	}
+
+	// Check for duplicate transitions (same source, event, and target)
+	for _, state := range b.stateMachine.stateMap {
+		for event, transitions := range state.eventTransitions {
+			seen := make(map[string]bool)
+			for _, t := range transitions {
+				// Create a unique key for source-event-target combination
+				key := fmt.Sprintf("%v->%v->%v", t.Source.id, event, t.Target.id)
+				if seen[key] {
+					return fmt.Errorf("%w: %v -[%v]-> %v", ErrDuplicateTransition, t.Source.id, event, t.Target.id)
+				}
+				seen[key] = true
+			}
+		}
+	}
+
+	return nil
 }
 
 // ExternalTransitionsBuilder builds external transitions from multiple source states to a single target state

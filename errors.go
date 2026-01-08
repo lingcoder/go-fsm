@@ -14,4 +14,6 @@ var (
 	ErrActionExecutionFailed    = errors.New("action execution failed")
 	ErrStateMachineNotReady     = errors.New("state machine is not ready yet")
 	ErrInternalTransition       = errors.New("internal transition source and target states must be the same")
+	ErrDuplicateTransition      = errors.New("duplicate transition detected")
+	ErrNoTransitionsDefined     = errors.New("no transitions defined in state machine")
 )
