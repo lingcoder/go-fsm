@@ -6,10 +6,22 @@ import (
 	"sync"
 )
 
-// StateMachine is a generic state machine interface
+// StateMachine is a generic state machine interface.
+//
 // S: State type, must be comparable (e.g., string, int)
 // E: Event type, must be comparable
 // P: Payload type, can be any type, used to pass data during state transitions
+//
+// Thread Safety:
+//   - StateMachine is safe for concurrent use by multiple goroutines.
+//   - Multiple goroutines can call FireEvent simultaneously.
+//
+// Payload Usage:
+//   - The payload is passed by value to conditions and actions.
+//   - However, if the payload contains pointers, slices, or maps,
+//     the underlying data is shared and may cause race conditions.
+//   - For concurrent scenarios with mutable payload data, consider
+//     passing a copy or using synchronization within your actions.
 type StateMachine[S comparable, E comparable, P any] interface {
 	// FireEvent triggers a state transition based on the current state and event
 	// Returns the new state and any error that occurred
