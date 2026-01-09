@@ -1,7 +1,7 @@
 # FSM-Go: A Lightweight Finite State Machine for Go
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/lingcoder/fsm-go.svg)](https://pkg.go.dev/github.com/lingcoder/fsm-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lingcoder/fsm-go)](https://goreportcard.com/report/github.com/lingcoder/fsm-go)
+[![Go Reference](https://pkg.go.dev/badge/github.com/lingcoder/go-fsm.svg)](https://pkg.go.dev/github.com/lingcoder/go-fsm)
+[![Go Report Card](https://goreportcard.com/badge/github.com/lingcoder/go-fsm)](https://goreportcard.com/report/github.com/lingcoder/go-fsm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 FSM-Go is a lightweight, high-performance, stateless finite state machine implementation in Go, inspired by Alibaba's COLA state machine component.
@@ -24,7 +24,7 @@ FSM-Go is a lightweight, high-performance, stateless finite state machine implem
 ## 📦 Installation
 
 ```bash
-go get github.com/lingcoder/fsm-go
+go get github.com/lingcoder/go-fsm
 ```
 
 ## 🚀 Usage
@@ -36,7 +36,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/lingcoder/fsm-go"
+	"github.com/lingcoder/go-fsm"
 )
 
 // Define states

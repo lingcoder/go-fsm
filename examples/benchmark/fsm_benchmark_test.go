@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lingcoder/fsm-go"
+	"github.com/lingcoder/go-fsm"
 )
 
 // createComplexStateMachine creates a complex state machine for benchmarking

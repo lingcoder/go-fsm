@@ -3,7 +3,7 @@ package order
 import (
 	"testing"
 
-	"github.com/lingcoder/fsm-go"
+	"github.com/lingcoder/go-fsm"
 )
 
 // Order states

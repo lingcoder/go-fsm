@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lingcoder/fsm-go"
+	"github.com/lingcoder/go-fsm"
 )
 
 // Game states

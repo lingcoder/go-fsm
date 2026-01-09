@@ -799,3 +799,620 @@ func TestBuild_SameSourceEventDifferentTarget(t *testing.T) {
 		t.Errorf("Expected StateC, got %v (err: %v)", newState, err)
 	}
 }
+
+// ==================== Factory Tests ====================
+
+// TestGetStateMachine_Success tests retrieving an existing state machine
+func TestGetStateMachine_Success(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	_, err := builder.Build("TestGetStateMachine_Success")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestGetStateMachine_Success")
+
+	// Retrieve the state machine
+	sm, err := GetStateMachine[testState, testEvent, testPayload]("TestGetStateMachine_Success")
+	if err != nil {
+		t.Fatalf("Failed to get state machine: %v", err)
+	}
+
+	// Verify it works
+	newState, err := sm.FireEvent(StateA, Event1, testPayload{})
+	if err != nil || newState != StateB {
+		t.Errorf("Expected StateB, got %v (err: %v)", newState, err)
+	}
+}
+
+// TestGetStateMachine_NotFound tests retrieving a non-existent state machine
+func TestGetStateMachine_NotFound(t *testing.T) {
+	_, err := GetStateMachine[testState, testEvent, testPayload]("NonExistentMachine")
+	if !errors.Is(err, ErrStateMachineNotFound) {
+		t.Errorf("Expected ErrStateMachineNotFound, got %v", err)
+	}
+}
+
+// TestGetStateMachine_TypeMismatch tests retrieving with wrong type parameters
+func TestGetStateMachine_TypeMismatch(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	_, err := builder.Build("TestGetStateMachine_TypeMismatch")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestGetStateMachine_TypeMismatch")
+
+	// Try to retrieve with different type parameters
+	_, err = GetStateMachine[string, string, string]("TestGetStateMachine_TypeMismatch")
+	if !errors.Is(err, ErrStateMachineNotFound) {
+		t.Errorf("Expected ErrStateMachineNotFound for type mismatch, got %v", err)
+	}
+}
+
+// TestListStateMachines tests listing all registered state machines
+func TestListStateMachines(t *testing.T) {
+	// Create multiple state machines
+	ids := []string{"TestList_Machine1", "TestList_Machine2", "TestList_Machine3"}
+
+	for _, id := range ids {
+		builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+		builder.ExternalTransition().
+			From(StateA).
+			To(StateB).
+			On(Event1).
+			When(&alwaysTrueCondition{}).
+			Perform(&noopAction{})
+
+		_, err := builder.Build(id)
+		if err != nil {
+			t.Fatalf("Failed to build state machine %s: %v", id, err)
+		}
+	}
+
+	// Cleanup
+	defer func() {
+		for _, id := range ids {
+			RemoveStateMachine(id)
+		}
+	}()
+
+	// List all state machines
+	list := ListStateMachines()
+
+	// Check that our machines are in the list
+	for _, id := range ids {
+		found := false
+		for _, listed := range list {
+			if listed == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected to find %s in list", id)
+		}
+	}
+}
+
+// TestRegisterStateMachine_AlreadyExists tests registering duplicate ID
+func TestRegisterStateMachine_AlreadyExists(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	_, err := builder.Build("TestRegister_Duplicate")
+	if err != nil {
+		t.Fatalf("Failed to build first state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestRegister_Duplicate")
+
+	// Try to build another with the same ID
+	builder2 := NewStateMachineBuilder[testState, testEvent, testPayload]()
+	builder2.ExternalTransition().
+		From(StateA).
+		To(StateC).
+		On(Event2).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	_, err = builder2.Build("TestRegister_Duplicate")
+	if !errors.Is(err, ErrStateMachineAlreadyExist) {
+		t.Errorf("Expected ErrStateMachineAlreadyExist, got %v", err)
+	}
+}
+
+// ==================== Builder Interface Tests ====================
+
+// TestExternalTransitions_WithFromBuilder tests ExternalTransitions using FromBuilder methods
+func TestExternalTransitions_WithFromBuilder(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	// Use When (interface) and Perform (interface) instead of WhenFunc/PerformFunc
+	builder.ExternalTransitions().
+		FromAmong(StateA, StateB).
+		To(StateC).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestExternalTransitions_WithFromBuilder")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestExternalTransitions_WithFromBuilder")
+
+	// Test transition from StateA
+	newState, err := sm.FireEvent(StateA, Event1, testPayload{})
+	if err != nil || newState != StateC {
+		t.Errorf("Expected StateC from StateA, got %v (err: %v)", newState, err)
+	}
+
+	// Test transition from StateB
+	newState, err = sm.FireEvent(StateB, Event1, testPayload{})
+	if err != nil || newState != StateC {
+		t.Errorf("Expected StateC from StateB, got %v (err: %v)", newState, err)
+	}
+}
+
+// TestExternalTransitions_WithWhenFunc tests ExternalTransitions using WhenFunc
+func TestExternalTransitions_WithWhenFunc(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	actionExecuted := false
+	builder.ExternalTransitions().
+		FromAmong(StateA, StateB).
+		To(StateC).
+		On(Event1).
+		WhenFunc(func(payload testPayload) bool {
+			return payload.Value == "go"
+		}).
+		PerformFunc(func(from, to testState, event testEvent, payload testPayload) error {
+			actionExecuted = true
+			return nil
+		})
+
+	sm, err := builder.Build("TestExternalTransitions_WithWhenFunc")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestExternalTransitions_WithWhenFunc")
+
+	// Test with matching condition
+	newState, err := sm.FireEvent(StateA, Event1, testPayload{Value: "go"})
+	if err != nil || newState != StateC {
+		t.Errorf("Expected StateC, got %v (err: %v)", newState, err)
+	}
+	if !actionExecuted {
+		t.Error("Action was not executed")
+	}
+}
+
+// TestExternalParallelTransition_WithWhenAndPerform tests parallel transition with interface methods
+func TestExternalParallelTransition_WithWhenAndPerform(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	action := &recordAction{}
+	builder.ExternalParallelTransition().
+		From(StateA).
+		ToAmong(StateB, StateC).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(action)
+
+	sm, err := builder.Build("TestExternalParallelTransition_WithWhenAndPerform")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestExternalParallelTransition_WithWhenAndPerform")
+
+	newStates, err := sm.FireParallelEvent(StateA, Event1, testPayload{})
+	if err != nil {
+		t.Fatalf("FireParallelEvent failed: %v", err)
+	}
+
+	if len(newStates) != 2 {
+		t.Errorf("Expected 2 states, got %d", len(newStates))
+	}
+}
+
+// TestExternalParallelTransition_WithWhenFunc tests parallel transition with WhenFunc
+func TestExternalParallelTransition_WithWhenFunc(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalParallelTransition().
+		From(StateA).
+		ToAmong(StateB, StateC).
+		On(Event1).
+		WhenFunc(func(payload testPayload) bool {
+			return true
+		}).
+		PerformFunc(func(from, to testState, event testEvent, payload testPayload) error {
+			return nil
+		})
+
+	sm, err := builder.Build("TestExternalParallelTransition_WithWhenFunc")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestExternalParallelTransition_WithWhenFunc")
+
+	newStates, err := sm.FireParallelEvent(StateA, Event1, testPayload{})
+	if err != nil {
+		t.Fatalf("FireParallelEvent failed: %v", err)
+	}
+
+	if len(newStates) != 2 {
+		t.Errorf("Expected 2 states, got %d", len(newStates))
+	}
+}
+
+// TestExternalTransition_WithPerformFunc tests single external transition with PerformFunc
+func TestExternalTransition_WithPerformFunc(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	executed := false
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		WhenFunc(func(payload testPayload) bool { return true }).
+		PerformFunc(func(from, to testState, event testEvent, payload testPayload) error {
+			executed = true
+			return nil
+		})
+
+	sm, err := builder.Build("TestExternalTransition_WithPerformFunc")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestExternalTransition_WithPerformFunc")
+
+	newState, err := sm.FireEvent(StateA, Event1, testPayload{})
+	if err != nil || newState != StateB {
+		t.Errorf("Expected StateB, got %v (err: %v)", newState, err)
+	}
+	if !executed {
+		t.Error("PerformFunc was not executed")
+	}
+}
+
+// TestInternalTransition_WithWhenFunc tests internal transition with WhenFunc
+func TestInternalTransition_WithWhenFunc(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	executed := false
+	builder.InternalTransition().
+		Within(StateA).
+		On(Event1).
+		WhenFunc(func(payload testPayload) bool { return true }).
+		PerformFunc(func(from, to testState, event testEvent, payload testPayload) error {
+			executed = true
+			return nil
+		})
+
+	sm, err := builder.Build("TestInternalTransition_WithWhenFunc")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestInternalTransition_WithWhenFunc")
+
+	newState, err := sm.FireEvent(StateA, Event1, testPayload{})
+	if err != nil || newState != StateA {
+		t.Errorf("Expected to stay in StateA, got %v (err: %v)", newState, err)
+	}
+	if !executed {
+		t.Error("PerformFunc was not executed")
+	}
+}
+
+// ==================== Diagram Tests ====================
+
+// TestGenerateDiagram_MultipleFormats tests generating multiple formats at once
+func TestGenerateDiagram_MultipleFormats(t *testing.T) {
+	sm := createTestStateMachine(t)
+
+	output := sm.GenerateDiagram(PlantUML, MarkdownTable)
+
+	// Should contain both formats
+	if !contains(output, "@startuml") {
+		t.Error("Missing PlantUML output")
+	}
+	if !contains(output, "# State Machine") {
+		t.Error("Missing MarkdownTable output")
+	}
+}
+
+// TestGenerateDiagram_DefaultCase tests the default case in switch
+func TestGenerateDiagram_DefaultCase(t *testing.T) {
+	sm := createTestStateMachine(t)
+
+	// Use an invalid format value to trigger default case
+	output := sm.GenerateDiagram(DiagramFormat(999))
+
+	// Default should be PlantUML
+	if !contains(output, "@startuml") {
+		t.Error("Default case should generate PlantUML")
+	}
+}
+
+// TestGenerateDiagram_InternalTransitionInTable tests internal transition display in markdown table
+func TestGenerateDiagram_InternalTransitionInTable(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.InternalTransition().
+		Within(StateA).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestGenerateDiagram_InternalTransitionInTable")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestGenerateDiagram_InternalTransitionInTable")
+
+	output := sm.GenerateDiagram(MarkdownTable)
+
+	if !contains(output, "Internal") {
+		t.Error("MarkdownTable should show Internal transition type")
+	}
+}
+
+// TestGenerateDiagram_InternalTransitionInStateDiagram tests internal transition in state diagram
+func TestGenerateDiagram_InternalTransitionInStateDiagram(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.InternalTransition().
+		Within(StateA).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestGenerateDiagram_InternalTransitionInStateDiagram")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestGenerateDiagram_InternalTransitionInStateDiagram")
+
+	output := sm.GenerateDiagram(MarkdownStateDiagram)
+
+	if !contains(output, "[internal]") {
+		t.Error("MarkdownStateDiagram should show [internal] marker")
+	}
+}
+
+// ==================== FSM Edge Case Tests ====================
+
+// TestFireParallelEvent_StateNotFound tests parallel event with non-existent state
+func TestFireParallelEvent_StateNotFound(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalParallelTransition().
+		From(StateA).
+		ToAmong(StateB, StateC).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestFireParallelEvent_StateNotFound")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestFireParallelEvent_StateNotFound")
+
+	_, err = sm.FireParallelEvent(StateD, Event1, testPayload{})
+	if !errors.Is(err, ErrStateNotFound) {
+		t.Errorf("Expected ErrStateNotFound, got %v", err)
+	}
+}
+
+// TestFireParallelEvent_TransitionNotFound tests parallel event with no matching transition
+func TestFireParallelEvent_TransitionNotFound(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalParallelTransition().
+		From(StateA).
+		ToAmong(StateB, StateC).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestFireParallelEvent_TransitionNotFound")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestFireParallelEvent_TransitionNotFound")
+
+	_, err = sm.FireParallelEvent(StateA, Event2, testPayload{})
+	if !errors.Is(err, ErrTransitionNotFound) {
+		t.Errorf("Expected ErrTransitionNotFound, got %v", err)
+	}
+}
+
+// TestFireParallelEvent_NotReady tests parallel event when machine is not ready
+func TestFireParallelEvent_NotReady(t *testing.T) {
+	sm := newStateMachine[testState, testEvent, testPayload]("NotReadyParallel")
+	// Don't call SetReady(true)
+
+	_, err := sm.FireParallelEvent(StateA, Event1, testPayload{})
+	if !errors.Is(err, ErrStateMachineNotReady) {
+		t.Errorf("Expected ErrStateMachineNotReady, got %v", err)
+	}
+}
+
+// TestFireParallelEvent_ActionError tests parallel event when action fails
+func TestFireParallelEvent_ActionError(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalParallelTransition().
+		From(StateA).
+		ToAmong(StateB, StateC).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&errorAction{})
+
+	sm, err := builder.Build("TestFireParallelEvent_ActionError")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestFireParallelEvent_ActionError")
+
+	_, err = sm.FireParallelEvent(StateA, Event1, testPayload{})
+	if !errors.Is(err, ErrActionExecutionFailed) {
+		t.Errorf("Expected ErrActionExecutionFailed, got %v", err)
+	}
+}
+
+// TestVerify_NotReady tests Verify when machine is not ready
+func TestVerify_NotReady(t *testing.T) {
+	sm := newStateMachine[testState, testEvent, testPayload]("NotReadyVerify")
+	// Don't call SetReady(true)
+
+	if sm.Verify(StateA, Event1) {
+		t.Error("Expected Verify to return false when machine is not ready")
+	}
+}
+
+// TestRemoveStateMachine_NotFound tests removing non-existent state machine
+func TestRemoveStateMachine_NotFound(t *testing.T) {
+	result := RemoveStateMachine("NonExistentMachineToRemove")
+	if result {
+		t.Error("Expected RemoveStateMachine to return false for non-existent machine")
+	}
+}
+
+// ==================== Low-level API Tests ====================
+
+// TestAddParallelTransitions tests the AddParallelTransitions method directly
+func TestAddParallelTransitions(t *testing.T) {
+	stateA := NewState[testState, testEvent, testPayload](StateA)
+	stateB := NewState[testState, testEvent, testPayload](StateB)
+	stateC := NewState[testState, testEvent, testPayload](StateC)
+
+	transitions := stateA.AddParallelTransitions(Event1, []*State[testState, testEvent, testPayload]{stateB, stateC}, External)
+
+	if len(transitions) != 2 {
+		t.Errorf("Expected 2 transitions, got %d", len(transitions))
+	}
+
+	// Verify transitions are correctly set up
+	for _, tr := range transitions {
+		if tr.Source != stateA {
+			t.Error("Source should be StateA")
+		}
+		if tr.Event != Event1 {
+			t.Error("Event should be Event1")
+		}
+	}
+}
+
+// TestTransit_InvalidInternalTransition tests Transit with mismatched source/target for internal transition
+func TestTransit_InvalidInternalTransition(t *testing.T) {
+	stateA := NewState[testState, testEvent, testPayload](StateA)
+	stateB := NewState[testState, testEvent, testPayload](StateB)
+
+	// Manually create an invalid internal transition (source != target)
+	transition := &Transition[testState, testEvent, testPayload]{
+		Source:    stateA,
+		Target:    stateB, // Different from source - invalid for Internal type
+		Event:     Event1,
+		TransType: Internal,
+	}
+
+	_, err := transition.Transit(testPayload{}, false)
+	if !errors.Is(err, ErrInternalTransition) {
+		t.Errorf("Expected ErrInternalTransition, got %v", err)
+	}
+}
+
+// TestShowStateMachine_WithInternalTransition tests ShowStateMachine output for internal transitions
+func TestShowStateMachine_WithInternalTransition(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.InternalTransition().
+		Within(StateA).
+		On(Event1).
+		When(&alwaysTrueCondition{}).
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestShowStateMachine_WithInternalTransition")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestShowStateMachine_WithInternalTransition")
+
+	output := sm.ShowStateMachine()
+
+	if !contains(output, "INTERNAL") {
+		t.Error("ShowStateMachine should display INTERNAL for internal transitions")
+	}
+}
+
+// TestTransit_NoAction tests Transit when there is no action defined
+func TestTransit_NoAction(t *testing.T) {
+	stateA := NewState[testState, testEvent, testPayload](StateA)
+	stateB := NewState[testState, testEvent, testPayload](StateB)
+
+	// Create transition without action
+	transition := &Transition[testState, testEvent, testPayload]{
+		Source:    stateA,
+		Target:    stateB,
+		Event:     Event1,
+		TransType: External,
+		Condition: nil,
+		Action:    nil, // No action
+	}
+
+	result, err := transition.Transit(testPayload{}, true)
+	if err != nil {
+		t.Errorf("Transit should succeed without action, got error: %v", err)
+	}
+	if result != stateB {
+		t.Errorf("Expected target state %v, got %v", stateB, result)
+	}
+}
+
+// TestTransit_ConditionNotSatisfied tests Transit when condition returns false
+func TestTransit_ConditionNotSatisfied(t *testing.T) {
+	stateA := NewState[testState, testEvent, testPayload](StateA)
+	stateB := NewState[testState, testEvent, testPayload](StateB)
+
+	// Create transition with condition that returns false
+	transition := &Transition[testState, testEvent, testPayload]{
+		Source:    stateA,
+		Target:    stateB,
+		Event:     Event1,
+		TransType: External,
+		Condition: ConditionFunc[testPayload](func(p testPayload) bool { return false }),
+		Action:    nil,
+	}
+
+	result, err := transition.Transit(testPayload{}, true)
+	if err != nil {
+		t.Errorf("Transit should not error when condition not met, got: %v", err)
+	}
+	// Should stay at source state
+	if result != stateA {
+		t.Errorf("Expected to stay at source state %v, got %v", stateA, result)
+	}
+}
