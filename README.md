@@ -160,7 +160,7 @@ Check the `examples` directory for more detailed examples:
 
 ## ⚡ Performance
 
-FSM-Go is designed for high performance:
+Go-FSM is designed for high performance:
 
 - Stateless design minimizes memory usage
 - Efficient transition lookup
@@ -169,7 +169,7 @@ FSM-Go is designed for high performance:
 
 ## 📊 Visualization
 
-FSM-Go provides a unified way to visualize your state machine with different formats:
+Go-FSM provides a unified way to visualize your state machine with different formats:
 
 ```go
 // Default format (PlantUML)
