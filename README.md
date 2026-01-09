@@ -1,10 +1,10 @@
-# FSM-Go: A Lightweight Finite State Machine for Go
+# Go-FSM: A Lightweight Finite State Machine for Go
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/lingcoder/go-fsm.svg)](https://pkg.go.dev/github.com/lingcoder/go-fsm)
 [![Go Report Card](https://goreportcard.com/badge/github.com/lingcoder/go-fsm)](https://goreportcard.com/report/github.com/lingcoder/go-fsm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-FSM-Go is a lightweight, high-performance, stateless finite state machine implementation in Go, inspired by Alibaba's COLA state machine component.
+Go-FSM is a lightweight, high-performance, stateless finite state machine implementation in Go, inspired by Alibaba's COLA state machine component.
 
 <p align="center">
   <a href="README-zh.md">中文文档</a>

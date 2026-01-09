@@ -1,10 +1,10 @@
-# FSM-Go: Go 语言轻量级有限状态机
+# Go-FSM: Go 语言轻量级有限状态机
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/lingcoder/go-fsm.svg)](https://pkg.go.dev/github.com/lingcoder/go-fsm)
 [![Go Report Card](https://goreportcard.com/badge/github.com/lingcoder/go-fsm)](https://goreportcard.com/report/github.com/lingcoder/go-fsm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-FSM-Go 是一个轻量级、高性能、无状态的有限状态机 Go 实现，灵感来自阿里巴巴的 COLA 状态机组件。
+Go-FSM 是一个轻量级、高性能、无状态的有限状态机 Go 实现，灵感来自阿里巴巴的 COLA 状态机组件。
 
 <p align="center">
   <a href="README.md">English Documentation</a>
