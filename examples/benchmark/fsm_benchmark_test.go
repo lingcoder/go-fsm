@@ -2,11 +2,19 @@ package benchmark
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/lingcoder/go-fsm"
 )
+
+// machineSeq keeps benchmark machine IDs unique: the registry rejects duplicate IDs,
+// and benchmark functions run several times while time.Now() can repeat on coarse clocks
+var machineSeq int64
+
+func uniqueMachineID(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, atomic.AddInt64(&machineSeq, 1))
+}
 
 // createComplexStateMachine creates a complex state machine for benchmarking
 func createComplexStateMachine(b *testing.B) fsm.StateMachine[string, string, interface{}] {
@@ -77,7 +85,7 @@ func createComplexStateMachine(b *testing.B) fsm.StateMachine[string, string, in
 			return nil
 		})
 
-	stateMachine, err := builder.Build(fmt.Sprintf("BenchmarkMachine-%d", time.Now().UnixNano()))
+	stateMachine, err := builder.Build(uniqueMachineID("BenchmarkMachine"))
 	if err != nil {
 		b.Fatalf("Failed to build state machine: %v", err)
 	}
@@ -137,7 +145,7 @@ func BenchmarkDiagramGeneration(b *testing.B) {
 			return nil
 		})
 
-	stateMachine, err := builder.Build(fmt.Sprintf("DiagramMachine-%d", time.Now().UnixNano()))
+	stateMachine, err := builder.Build(uniqueMachineID("DiagramMachine"))
 	if err != nil {
 		b.Fatalf("Failed to build state machine: %v", err)
 	}
@@ -216,6 +224,21 @@ func BenchmarkStateTransition(b *testing.B) {
 	}
 }
 
+// BenchmarkConcurrentStateTransition tests FireEvent throughput from many goroutines
+func BenchmarkConcurrentStateTransition(b *testing.B) {
+	stateMachine := createComplexStateMachine(b)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, err := stateMachine.FireEvent("A", "EVENT1", nil); err != nil {
+				b.Errorf("Failed to transition: %v", err)
+				return
+			}
+		}
+	})
+}
+
 // BenchmarkParallelTransition tests the performance of parallel transitions
 func BenchmarkParallelTransition(b *testing.B) {
 	stateMachine := createComplexStateMachine(b)
@@ -271,7 +294,7 @@ func BenchmarkStateMachineCreation(b *testing.B) {
 					return nil
 				})
 
-			_, err := builder.Build(fmt.Sprintf("SimpleMachine-%d", i))
+			_, err := builder.Build(uniqueMachineID("SimpleMachine"))
 			if err != nil {
 				b.Fatalf("Failed to build state machine: %v", err)
 			}
