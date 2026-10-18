@@ -171,21 +171,20 @@ func (b *StateMachineBuilder[S, E, P]) ExternalParallelTransition() ExternalPara
 //
 //	The built state machine and possible error
 func (b *StateMachineBuilder[S, E, P]) Build(machineId string) (StateMachine[S, E, P], error) {
-	b.stateMachine.id = machineId
-
 	// Validate the state machine configuration
 	if err := b.validate(); err != nil {
 		return nil, err
 	}
 
-	b.stateMachine.SetReady(true)
+	// Build an independent copy so later builder calls can't modify the returned machine
+	stateMachine := b.stateMachine.snapshot(machineId)
 
 	// Register the state machine in a factory
-	err := RegisterStateMachine[S, E, P](machineId, b.stateMachine)
+	err := RegisterStateMachine[S, E, P](machineId, stateMachine)
 	if err != nil {
 		return nil, err
 	}
-	return b.stateMachine, nil
+	return stateMachine, nil
 }
 
 // validate checks the state machine configuration for errors
@@ -326,11 +325,11 @@ func (b *ParallelFromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	b.action = action
 
 	// Get or create source state
-	sourceState := b.stateMachine.GetState(b.sourceId)
+	sourceState := b.stateMachine.getOrCreateState(b.sourceId)
 
 	// Create transitions to all target states
 	for _, targetId := range b.targetIds {
-		targetState := b.stateMachine.GetState(targetId)
+		targetState := b.stateMachine.getOrCreateState(targetId)
 		transition := sourceState.AddTransition(b.event, targetState, b.transitionType)
 		transition.Condition = b.condition
 		transition.Action = b.action
@@ -345,11 +344,11 @@ func (b *ParallelFromBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, t
 	b.action = ActionFunc[S, E, P](actionFunc)
 
 	// Get or create source state
-	sourceState := b.stateMachine.GetState(b.sourceId)
+	sourceState := b.stateMachine.getOrCreateState(b.sourceId)
 
 	// Create transitions to all target states
 	for _, targetId := range b.targetIds {
-		targetState := b.stateMachine.GetState(targetId)
+		targetState := b.stateMachine.getOrCreateState(targetId)
 		transition := sourceState.AddTransition(b.event, targetState, b.transitionType)
 		transition.Condition = b.condition
 		transition.Action = b.action
@@ -440,8 +439,8 @@ func (b *TransitionBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	b.action = action
 
 	// Get or create states
-	sourceState := b.stateMachine.GetState(b.sourceId)
-	targetState := b.stateMachine.GetState(b.targetId)
+	sourceState := b.stateMachine.getOrCreateState(b.sourceId)
+	targetState := b.stateMachine.getOrCreateState(b.targetId)
 
 	// Create transition
 	transition := sourceState.AddTransition(b.event, targetState, b.transitionType)
@@ -457,8 +456,8 @@ func (b *TransitionBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to 
 	b.action = ActionFunc[S, E, P](actionFunc)
 
 	// Get or create states
-	sourceState := b.stateMachine.GetState(b.sourceId)
-	targetState := b.stateMachine.GetState(b.targetId)
+	sourceState := b.stateMachine.getOrCreateState(b.sourceId)
+	targetState := b.stateMachine.getOrCreateState(b.targetId)
 
 	// Create transition
 	transition := sourceState.AddTransition(b.event, targetState, b.transitionType)
@@ -537,11 +536,11 @@ func (b *FromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	b.action = action
 
 	// Get or create target state
-	targetState := b.stateMachine.GetState(b.targetId)
+	targetState := b.stateMachine.getOrCreateState(b.targetId)
 
 	// Create transitions from all source states
 	for _, sourceId := range b.sourceIds {
-		sourceState := b.stateMachine.GetState(sourceId)
+		sourceState := b.stateMachine.getOrCreateState(sourceId)
 		transition := sourceState.AddTransition(b.event, targetState, b.transitionType)
 		transition.Condition = b.condition
 		transition.Action = b.action
@@ -556,11 +555,11 @@ func (b *FromBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to S, eve
 	b.action = ActionFunc[S, E, P](actionFunc)
 
 	// Get or create target state
-	targetState := b.stateMachine.GetState(b.targetId)
+	targetState := b.stateMachine.getOrCreateState(b.targetId)
 
 	// Create transitions from all source states
 	for _, sourceId := range b.sourceIds {
-		sourceState := b.stateMachine.GetState(sourceId)
+		sourceState := b.stateMachine.getOrCreateState(sourceId)
 		transition := sourceState.AddTransition(b.event, targetState, b.transitionType)
 		transition.Condition = b.condition
 		transition.Action = b.action
@@ -645,7 +644,7 @@ func (b *OnTransitionBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	b.action = action
 
 	// Get or create state
-	state := b.stateMachine.GetState(b.stateId)
+	state := b.stateMachine.getOrCreateState(b.stateId)
 
 	// Create internal transition
 	transition := state.AddTransition(b.event, state, b.transitionType)
@@ -661,7 +660,7 @@ func (b *OnTransitionBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, t
 	b.action = ActionFunc[S, E, P](actionFunc)
 
 	// Get or create state
-	state := b.stateMachine.GetState(b.stateId)
+	state := b.stateMachine.getOrCreateState(b.stateId)
 
 	// Create internal transition
 	transition := state.AddTransition(b.event, state, b.transitionType)

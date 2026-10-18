@@ -2,7 +2,6 @@ package fsm
 
 import (
 	"fmt"
-	"sync"
 )
 
 // StateMachine is a generic state machine interface.
@@ -14,6 +13,9 @@ import (
 // Thread Safety:
 //   - StateMachine is safe for concurrent use by multiple goroutines.
 //   - Multiple goroutines can call FireEvent simultaneously.
+//   - A built StateMachine is immutable, so its methods take no locks.
+//   - StateMachineBuilder is not safe for concurrent use. Build returns an
+//     independent copy, so reusing the builder never affects built machines.
 //
 // Payload Usage:
 //   - The payload is passed by value to conditions and actions.
@@ -128,8 +130,12 @@ type Condition[P any] interface {
 // ConditionFunc is a function type that implements Condition interface
 type ConditionFunc[P any] func(payload P) bool
 
-// IsSatisfied implements Condition interface
+// IsSatisfied implements Condition interface.
+// A nil ConditionFunc is always satisfied, like a transition without condition.
 func (f ConditionFunc[P]) IsSatisfied(payload P) bool {
+	if f == nil {
+		return true
+	}
 	return f(payload)
 }
 
@@ -142,8 +148,12 @@ type Action[S comparable, E comparable, P any] interface {
 // ActionFunc is a function type that implements Action interface
 type ActionFunc[S comparable, E comparable, P any] func(from, to S, event E, payload P) error
 
-// Execute implements Action interface
+// Execute implements Action interface.
+// A nil ActionFunc does nothing.
 func (f ActionFunc[S, E, P]) Execute(from, to S, event E, payload P) error {
+	if f == nil {
+		return nil
+	}
 	return f(from, to, event, payload)
 }
 
@@ -172,19 +182,19 @@ func (t *Transition[S, E, P]) Transit(payload P, checkCondition bool) (*State[S,
 	// Execute action
 	if t.Action != nil {
 		if err := t.Action.Execute(t.Source.GetID(), t.Target.GetID(), t.Event, payload); err != nil {
-			return nil, ErrActionExecutionFailed
+			return nil, &actionError{cause: err}
 		}
 	}
 
 	return t.Target, nil
 }
 
-// StateMachineImpl implements the StateMachine interface
+// StateMachineImpl implements the StateMachine interface.
+// Once built it is never modified, so reads need no locking.
 type StateMachineImpl[S comparable, E comparable, P any] struct {
 	id       string
 	stateMap map[S]*State[S, E, P]
 	ready    bool
-	mutex    sync.RWMutex
 }
 
 // newStateMachine creates a new state machine (package private)
@@ -196,11 +206,39 @@ func newStateMachine[S comparable, E comparable, P any](id string) *StateMachine
 	}
 }
 
+// snapshot returns a ready deep copy of the state graph with the given id.
+// The copy shares no maps or slices with sm, so it stays immutable even if
+// the builder that owns sm keeps adding transitions.
+func (sm *StateMachineImpl[S, E, P]) snapshot(id string) *StateMachineImpl[S, E, P] {
+	clone := newStateMachine[S, E, P](id)
+	for stateId := range sm.stateMap {
+		clone.stateMap[stateId] = NewState[S, E, P](stateId)
+	}
+
+	for stateId, state := range sm.stateMap {
+		source := clone.stateMap[stateId]
+		for event, transitions := range state.eventTransitions {
+			copied := make([]*Transition[S, E, P], 0, len(transitions))
+			for _, t := range transitions {
+				copied = append(copied, &Transition[S, E, P]{
+					Source:    source,
+					Target:    clone.stateMap[t.Target.id],
+					Event:     t.Event,
+					Condition: t.Condition,
+					Action:    t.Action,
+					TransType: t.TransType,
+				})
+			}
+			source.eventTransitions[event] = copied
+		}
+	}
+
+	clone.ready = true
+	return clone
+}
+
 // FireEvent triggers a state transition based on the current state and event
 func (sm *StateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload P) (S, error) {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-
 	if !sm.ready {
 		var zeroState S
 		return zeroState, ErrStateMachineNotReady
@@ -223,7 +261,9 @@ func (sm *StateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload
 	// Find the first transition with satisfied condition
 	for _, transition := range transitions {
 		if transition.Condition == nil || transition.Condition.IsSatisfied(payload) {
-			targetState, err := transition.Transit(payload, true)
+			// Skip the condition check in Transit: a second evaluation could disagree
+			// and silently return the source state without running the action
+			targetState, err := transition.Transit(payload, false)
 			if err != nil {
 				var zeroState S
 				return zeroState, err
@@ -238,9 +278,6 @@ func (sm *StateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload
 
 // FireParallelEvent triggers parallel state transitions based on the current state and event
 func (sm *StateMachineImpl[S, E, P]) FireParallelEvent(sourceStateId S, event E, payload P) ([]S, error) {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-
 	if !sm.ready {
 		return nil, ErrStateMachineNotReady
 	}
@@ -286,9 +323,6 @@ func (sm *StateMachineImpl[S, E, P]) FireParallelEvent(sourceStateId S, event E,
 
 // Verify checks if there is a valid transition for the given state and event
 func (sm *StateMachineImpl[S, E, P]) Verify(sourceStateId S, event E) bool {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-
 	if !sm.ready {
 		return false
 	}
@@ -306,11 +340,9 @@ func (sm *StateMachineImpl[S, E, P]) Verify(sourceStateId S, event E) bool {
 	return transitions != nil && len(transitions) > 0
 }
 
-// GetState returns a state by ID, creating it if it doesn't exist
-func (sm *StateMachineImpl[S, E, P]) GetState(stateId S) *State[S, E, P] {
-	sm.mutex.Lock()
-	defer sm.mutex.Unlock()
-
+// getOrCreateState returns a state by ID, creating it if it doesn't exist.
+// Only the builder calls it, before the machine is built.
+func (sm *StateMachineImpl[S, E, P]) getOrCreateState(stateId S) *State[S, E, P] {
 	if state, ok := sm.stateMap[stateId]; ok {
 		return state
 	}
@@ -320,18 +352,8 @@ func (sm *StateMachineImpl[S, E, P]) GetState(stateId S) *State[S, E, P] {
 	return state
 }
 
-// SetReady marks the state machine as ready
-func (sm *StateMachineImpl[S, E, P]) SetReady(ready bool) {
-	sm.mutex.Lock()
-	defer sm.mutex.Unlock()
-	sm.ready = ready
-}
-
 // ShowStateMachine returns a string representation of the state machine
 func (sm *StateMachineImpl[S, E, P]) ShowStateMachine() string {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-
 	result := fmt.Sprintf("StateMachine(id=%s):\n", sm.id)
 
 	for _, state := range sm.stateMap {

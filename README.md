@@ -164,7 +164,7 @@ Go-FSM is designed for high performance:
 
 - Stateless design minimizes memory usage
 - Efficient transition lookup
-- Thread-safe for concurrent use
+- Thread-safe and lock-free: a built state machine is immutable, so concurrent `FireEvent` calls never contend
 - Benchmarks included in the test suite
 
 ## 📊 Visualization

@@ -38,9 +38,6 @@ func (sm *StateMachineImpl[S, E, P]) GenerateDiagram(formats ...DiagramFormat) s
 
 // generatePlantUML returns a PlantUML diagram of the state machine
 func (sm *StateMachineImpl[S, E, P]) generatePlantUML() string {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-
 	var sb strings.Builder
 	sb.WriteString("@startuml\n")
 	sb.WriteString(fmt.Sprintf("title StateMachine: %s\n", sm.id))
@@ -65,9 +62,6 @@ func (sm *StateMachineImpl[S, E, P]) generatePlantUML() string {
 
 // generateMarkdownTable returns a Markdown table representation of the state machine
 func (sm *StateMachineImpl[S, E, P]) generateMarkdownTable() string {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("# State Machine: %s\n\n", sm.id))
 
@@ -110,9 +104,6 @@ func (sm *StateMachineImpl[S, E, P]) generateMarkdownTable() string {
 
 // generateMarkdownFlow returns a Mermaid flowchart diagram in Markdown format
 func (sm *StateMachineImpl[S, E, P]) generateMarkdownFlow() string {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-
 	var sb strings.Builder
 	sb.WriteString("```mermaid\nflowchart TD\n")
 
@@ -145,9 +136,6 @@ func (sm *StateMachineImpl[S, E, P]) generateMarkdownFlow() string {
 
 // generateMarkdownStateDiagram returns a Mermaid state diagram in Markdown format
 func (sm *StateMachineImpl[S, E, P]) generateMarkdownStateDiagram() string {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-
 	var sb strings.Builder
 	sb.WriteString("```mermaid\nstateDiagram-v2\n")
 
