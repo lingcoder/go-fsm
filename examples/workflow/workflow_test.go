@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -349,20 +350,24 @@ func TestParallelTransitions(t *testing.T) {
 
 	// Test parallel transition
 	payload := createValidPayload()
-	state, err := stateMachine.FireEvent(Draft, Submit, payload)
+	states, err := stateMachine.FireParallelEvent(Draft, Submit, payload)
 	if err != nil {
 		t.Fatalf("Failed to execute parallel transition: %v", err)
 	}
 
-	// Check that we transitioned to one of the target states
-	if state != Submitted && state != InReview {
-		t.Errorf("Expected state to be either %s or %s, got %s", Submitted, InReview, state)
+	// Check that we transitioned to both target states
+	if len(states) != 2 || states[0] != Submitted || states[1] != InReview {
+		t.Errorf("Expected states [%s %s], got %v", Submitted, InReview, states)
 	}
 
-	// In the current implementation, parallel transitions only log one transition
-	// This is because the state machine only returns one final state
-	if len(transitionLog) != 1 {
-		t.Errorf("Expected 1 transition to be logged, got %d", len(transitionLog))
+	// Every parallel transition runs its action
+	if len(transitionLog) != 2 {
+		t.Errorf("Expected 2 transitions to be logged, got %d", len(transitionLog))
+	}
+
+	// FireEvent would fire only one of the parallel transitions, so it is rejected
+	if _, err := stateMachine.FireEvent(Draft, Submit, payload); !errors.Is(err, fsm.ErrParallelTransition) {
+		t.Errorf("Expected ErrParallelTransition from FireEvent, got %v", err)
 	}
 }
 

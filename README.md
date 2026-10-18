@@ -148,7 +148,21 @@ func main() {
 
 - **External Transition**: Transition between different states
 - **Internal Transition**: Actions within the same state
-- **Parallel Transition**: Transition to multiple states simultaneously
+- **Parallel Transition**: Transition to multiple states simultaneously. Fire it with `FireParallelEvent`; if an action fails, the remaining transitions are skipped and the states already reached are returned with the error
+
+`When` is optional: `On(event).Perform(action)` defines a transition without condition. `Build` rejects definitions that never reach `Perform`, duplicate transitions, and transitions that can never fire.
+
+### Registry
+
+`Build` does not register state machines globally. Register one explicitly to look it up by ID later:
+
+```go
+if err := fsm.RegisterStateMachine("OrderStateMachine", stateMachine); err != nil {
+	log.Fatal(err)
+}
+
+sm, err := fsm.GetStateMachine[OrderState, OrderEvent, OrderPayload]("OrderStateMachine")
+```
 
 ## 📚 Examples
 

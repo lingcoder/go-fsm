@@ -16,16 +16,21 @@ var (
 	ErrInternalTransition       = errors.New("internal transition source and target states must be the same")
 	ErrDuplicateTransition      = errors.New("duplicate transition detected")
 	ErrNoTransitionsDefined     = errors.New("no transitions defined in state machine")
+	ErrIncompleteTransition     = errors.New("transition definition is missing Perform")
+	ErrUnreachableTransition    = errors.New("transition is unreachable after an unconditional transition")
+	ErrMixedTransitions         = errors.New("parallel and non-parallel transitions defined for the same state and event")
+	ErrParallelTransition       = errors.New("parallel transition must be fired with FireParallelEvent")
 )
 
 // actionError wraps the error returned by a transition action.
 // It matches ErrActionExecutionFailed via errors.Is and unwraps to the original cause.
 type actionError struct {
-	cause error
+	transition string
+	cause      error
 }
 
 func (e *actionError) Error() string {
-	return ErrActionExecutionFailed.Error() + ": " + e.cause.Error()
+	return ErrActionExecutionFailed.Error() + " (" + e.transition + "): " + e.cause.Error()
 }
 
 func (e *actionError) Is(target error) bool {

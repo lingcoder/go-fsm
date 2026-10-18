@@ -1,6 +1,7 @@
 package fsm
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -16,6 +17,7 @@ var registry = &stateMachineRegistry{
 }
 
 // RegisterStateMachine adds a state machine to the registry
+// Build does not register machines; register them here to look them up with GetStateMachine.
 // Parameters:
 //
 //	machineId: Unique identifier for the state machine
@@ -52,7 +54,7 @@ func GetStateMachine[S comparable, E comparable, P any](machineId string) (State
 		if typedSM, ok := sm.(StateMachine[S, E, P]); ok {
 			return typedSM, nil
 		}
-		return nil, ErrStateMachineNotFound
+		return nil, fmt.Errorf("%w: %q is registered with different type parameters", ErrStateMachineNotFound, machineId)
 	}
 
 	return nil, ErrStateMachineNotFound

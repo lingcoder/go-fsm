@@ -2,19 +2,10 @@ package benchmark
 
 import (
 	"fmt"
-	"sync/atomic"
 	"testing"
 
 	"github.com/lingcoder/go-fsm"
 )
-
-// machineSeq keeps benchmark machine IDs unique: the registry rejects duplicate IDs,
-// and benchmark functions run several times while time.Now() can repeat on coarse clocks
-var machineSeq int64
-
-func uniqueMachineID(prefix string) string {
-	return fmt.Sprintf("%s-%d", prefix, atomic.AddInt64(&machineSeq, 1))
-}
 
 // createComplexStateMachine creates a complex state machine for benchmarking
 func createComplexStateMachine(b *testing.B) fsm.StateMachine[string, string, interface{}] {
@@ -85,7 +76,7 @@ func createComplexStateMachine(b *testing.B) fsm.StateMachine[string, string, in
 			return nil
 		})
 
-	stateMachine, err := builder.Build(uniqueMachineID("BenchmarkMachine"))
+	stateMachine, err := builder.Build("BenchmarkMachine")
 	if err != nil {
 		b.Fatalf("Failed to build state machine: %v", err)
 	}
@@ -145,7 +136,7 @@ func BenchmarkDiagramGeneration(b *testing.B) {
 			return nil
 		})
 
-	stateMachine, err := builder.Build(uniqueMachineID("DiagramMachine"))
+	stateMachine, err := builder.Build("DiagramMachine")
 	if err != nil {
 		b.Fatalf("Failed to build state machine: %v", err)
 	}
@@ -247,7 +238,7 @@ func BenchmarkParallelTransition(b *testing.B) {
 		b.ResetTimer()
 
 		for i := 0; i < b.N; i++ {
-			_, err := stateMachine.FireEvent("A", "PARALLEL", nil)
+			_, err := stateMachine.FireParallelEvent("A", "PARALLEL", nil)
 			if err != nil {
 				b.Fatalf("Failed to execute parallel transition: %v", err)
 			}
@@ -294,7 +285,7 @@ func BenchmarkStateMachineCreation(b *testing.B) {
 					return nil
 				})
 
-			_, err := builder.Build(uniqueMachineID("SimpleMachine"))
+			_, err := builder.Build("SimpleMachine")
 			if err != nil {
 				b.Fatalf("Failed to build state machine: %v", err)
 			}
