@@ -26,10 +26,13 @@ import (
 type StateMachine[S comparable, E comparable, P any] interface {
 	// FireEvent triggers a state transition based on the current state and event
 	// Returns the new state and any error that occurred
+	// Returns ErrParallelTransition if the event is defined as a parallel transition
 	FireEvent(sourceState S, event E, payload P) (S, error)
 
 	// FireParallelEvent triggers parallel state transitions based on the current state and event
 	// Returns a slice of new states and any error that occurred
+	// If an action fails, the remaining transitions are skipped and the states already
+	// transitioned to are returned together with the error
 	FireParallelEvent(sourceState S, event E, payload P) ([]S, error)
 
 	// Verify checks if there is a valid transition for the given state and event
@@ -139,6 +142,15 @@ func (f ConditionFunc[P]) IsSatisfied(payload P) bool {
 	return f(payload)
 }
 
+// isUnconditional reports whether c always passes: no condition or a nil ConditionFunc
+func isUnconditional[P any](c Condition[P]) bool {
+	if c == nil {
+		return true
+	}
+	f, ok := c.(ConditionFunc[P])
+	return ok && f == nil
+}
+
 // Action is an interface for transition actions
 type Action[S comparable, E comparable, P any] interface {
 	// Execute runs the action during a state transition
@@ -165,6 +177,9 @@ type Transition[S comparable, E comparable, P any] struct {
 	Condition Condition[P]
 	Action    Action[S, E, P]
 	TransType TransitionType
+
+	// parallel marks transitions defined with ExternalParallelTransition
+	parallel bool
 }
 
 // Transit executes the transition
@@ -182,7 +197,10 @@ func (t *Transition[S, E, P]) Transit(payload P, checkCondition bool) (*State[S,
 	// Execute action
 	if t.Action != nil {
 		if err := t.Action.Execute(t.Source.GetID(), t.Target.GetID(), t.Event, payload); err != nil {
-			return nil, &actionError{cause: err}
+			return nil, &actionError{
+				transition: fmt.Sprintf("%v -[%v]-> %v", t.Source.id, t.Event, t.Target.id),
+				cause:      err,
+			}
 		}
 	}
 
@@ -227,6 +245,7 @@ func (sm *StateMachineImpl[S, E, P]) snapshot(id string) *StateMachineImpl[S, E,
 					Condition: t.Condition,
 					Action:    t.Action,
 					TransType: t.TransType,
+					parallel:  t.parallel,
 				})
 			}
 			source.eventTransitions[event] = copied
@@ -256,6 +275,12 @@ func (sm *StateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload
 	if transitions == nil || len(transitions) == 0 {
 		var zeroState S
 		return zeroState, ErrTransitionNotFound
+	}
+
+	// Parallel transitions fire together; picking one would silently skip the others
+	if transitions[0].parallel {
+		var zeroState S
+		return zeroState, ErrParallelTransition
 	}
 
 	// Find the first transition with satisfied condition
@@ -309,11 +334,12 @@ func (sm *StateMachineImpl[S, E, P]) FireParallelEvent(sourceStateId S, event E,
 		return nil, ErrConditionNotMet
 	}
 
-	// Then execute all valid transitions
+	// Then execute all valid transitions, stopping at the first failure.
+	// Actions that already ran can't be undone, so report the states reached so far.
 	for _, transition := range validTransitions {
 		targetState, err := transition.Transit(payload, false) // Skip condition check as we've already verified it
 		if err != nil {
-			return nil, err
+			return results, err
 		}
 		results = append(results, targetState.GetID())
 	}

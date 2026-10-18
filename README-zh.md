@@ -147,7 +147,21 @@ func main() {
 
 - **外部转换 (External Transition)**: 不同状态之间的转换
 - **内部转换 (Internal Transition)**: 同一状态内的动作
-- **并行转换 (Parallel Transition)**: 同时转换到多个状态
+- **并行转换 (Parallel Transition)**: 同时转换到多个状态。需要用 `FireParallelEvent` 触发；某个动作失败时会跳过剩余的转换，并把已经到达的状态和错误一起返回
+
+`When` 可以省略：`On(event).Perform(action)` 定义一个无条件转换。`Build` 会拒绝没有调用 `Perform` 的定义、重复的转换，以及永远不会触发的转换。
+
+### 注册表
+
+`Build` 不会把状态机注册到全局。如果之后需要按 ID 查找，请显式注册：
+
+```go
+if err := fsm.RegisterStateMachine("OrderStateMachine", stateMachine); err != nil {
+	log.Fatal(err)
+}
+
+sm, err := fsm.GetStateMachine[OrderState, OrderEvent, OrderPayload]("OrderStateMachine")
+```
 
 ## 📚 示例
 
