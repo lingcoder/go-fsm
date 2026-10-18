@@ -3,6 +3,7 @@ package fsm
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -452,7 +453,7 @@ func TestFireEvent_NilCondition(t *testing.T) {
 // TestFireEvent_StateMachineNotReady tests firing event before machine is ready
 func TestFireEvent_StateMachineNotReady(t *testing.T) {
 	sm := newStateMachine[testState, testEvent, testPayload]("NotReady")
-	// Don't call SetReady(true)
+	// Not created by Build, so it is never marked ready
 
 	_, err := sm.FireEvent(StateA, Event1, testPayload{})
 	if !errors.Is(err, ErrStateMachineNotReady) {
@@ -1252,7 +1253,7 @@ func TestFireParallelEvent_TransitionNotFound(t *testing.T) {
 // TestFireParallelEvent_NotReady tests parallel event when machine is not ready
 func TestFireParallelEvent_NotReady(t *testing.T) {
 	sm := newStateMachine[testState, testEvent, testPayload]("NotReadyParallel")
-	// Don't call SetReady(true)
+	// Not created by Build, so it is never marked ready
 
 	_, err := sm.FireParallelEvent(StateA, Event1, testPayload{})
 	if !errors.Is(err, ErrStateMachineNotReady) {
@@ -1286,7 +1287,7 @@ func TestFireParallelEvent_ActionError(t *testing.T) {
 // TestVerify_NotReady tests Verify when machine is not ready
 func TestVerify_NotReady(t *testing.T) {
 	sm := newStateMachine[testState, testEvent, testPayload]("NotReadyVerify")
-	// Don't call SetReady(true)
+	// Not created by Build, so it is never marked ready
 
 	if sm.Verify(StateA, Event1) {
 		t.Error("Expected Verify to return false when machine is not ready")
@@ -1414,5 +1415,239 @@ func TestTransit_ConditionNotSatisfied(t *testing.T) {
 	// Should stay at source state
 	if result != stateA {
 		t.Errorf("Expected to stay at source state %v, got %v", stateA, result)
+	}
+}
+
+// ==================== Regression Tests ====================
+
+// TestFireEvent_ConditionEvaluatedOnce tests that a condition is evaluated only once per FireEvent.
+// A condition that changed its answer between two evaluations used to return the source state
+// with a nil error and skip the action.
+func TestFireEvent_ConditionEvaluatedOnce(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	calls := 0
+	action := &recordAction{}
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		WhenFunc(func(payload testPayload) bool {
+			calls++
+			return calls == 1
+		}).
+		Perform(action)
+
+	sm, err := builder.Build("TestFireEvent_ConditionEvaluatedOnce")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestFireEvent_ConditionEvaluatedOnce")
+
+	newState, err := sm.FireEvent(StateA, Event1, testPayload{})
+	if err != nil {
+		t.Fatalf("FireEvent failed: %v", err)
+	}
+	if newState != StateB {
+		t.Errorf("Expected state %v, got %v", StateB, newState)
+	}
+	if !action.executed {
+		t.Error("Expected action to be executed")
+	}
+	if calls != 1 {
+		t.Errorf("Expected condition to be evaluated once, got %d", calls)
+	}
+}
+
+// TestBuild_BuilderReuseDoesNotAffectBuiltMachine tests that each Build returns an independent machine
+func TestBuild_BuilderReuseDoesNotAffectBuiltMachine(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		When(nil).
+		Perform(&noopAction{})
+
+	sm1, err := builder.Build("TestBuild_BuilderReuse_1")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestBuild_BuilderReuse_1")
+
+	builder.ExternalTransition().
+		From(StateB).
+		To(StateC).
+		On(Event2).
+		When(nil).
+		Perform(&noopAction{})
+
+	sm2, err := builder.Build("TestBuild_BuilderReuse_2")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestBuild_BuilderReuse_2")
+
+	if sm1.Verify(StateB, Event2) {
+		t.Error("Transition defined after Build leaked into the built state machine")
+	}
+	if !sm2.Verify(StateB, Event2) {
+		t.Error("Expected second Build to include the new transition")
+	}
+	if !strings.HasPrefix(sm1.ShowStateMachine(), "StateMachine(id=TestBuild_BuilderReuse_1)") {
+		t.Errorf("Second Build changed the first machine's id: %q", sm1.ShowStateMachine())
+	}
+}
+
+// TestBuild_BuilderReuseConcurrentWithFireEvent tests defining transitions while a built machine is in use.
+// It used to write maps that FireEvent was reading and crash with a concurrent map access.
+func TestBuild_BuilderReuseConcurrentWithFireEvent(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		When(nil).
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestBuild_BuilderReuseConcurrent")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestBuild_BuilderReuseConcurrent")
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			if _, err := sm.FireEvent(StateA, Event1, testPayload{}); err != nil {
+				t.Errorf("FireEvent failed: %v", err)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			builder.ExternalTransition().
+				From(StateA).
+				To(StateC).
+				On(testEvent(fmt.Sprintf("Event_%d", i))).
+				When(nil).
+				Perform(&noopAction{})
+		}
+	}()
+	wg.Wait()
+}
+
+// TestNilConditionAndActionFunc tests that nil funcs act as no condition and no action instead of panicking
+func TestNilConditionAndActionFunc(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		WhenFunc(nil).
+		Perform(&noopAction{})
+
+	builder.ExternalTransition().
+		From(StateB).
+		To(StateC).
+		On(Event1).
+		When(nil).
+		PerformFunc(nil)
+
+	builder.InternalTransition().
+		Within(StateC).
+		On(Event1).
+		WhenFunc(nil).
+		PerformFunc(nil)
+
+	builder.ExternalParallelTransition().
+		From(StateA).
+		ToAmong(StateC, StateD).
+		On(Event2).
+		WhenFunc(nil).
+		PerformFunc(nil)
+
+	sm, err := builder.Build("TestNilConditionAndActionFunc")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestNilConditionAndActionFunc")
+
+	tests := []struct {
+		from     testState
+		expected testState
+	}{
+		{StateA, StateB},
+		{StateB, StateC},
+		{StateC, StateC},
+	}
+	for _, tt := range tests {
+		newState, err := sm.FireEvent(tt.from, Event1, testPayload{})
+		if err != nil {
+			t.Fatalf("FireEvent from %v failed: %v", tt.from, err)
+		}
+		if newState != tt.expected {
+			t.Errorf("From %v: expected state %v, got %v", tt.from, tt.expected, newState)
+		}
+	}
+
+	results, err := sm.FireParallelEvent(StateA, Event2, testPayload{})
+	if err != nil {
+		t.Fatalf("FireParallelEvent failed: %v", err)
+	}
+	if len(results) != 2 || results[0] != StateC || results[1] != StateD {
+		t.Errorf("Expected [%v %v], got %v", StateC, StateD, results)
+	}
+}
+
+// TestActionError_KeepsCause tests that the error returned by an action stays reachable
+func TestActionError_KeepsCause(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	cause := errors.New("db timeout")
+	failing := func(from, to testState, event testEvent, payload testPayload) error {
+		return cause
+	}
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		When(nil).
+		PerformFunc(failing)
+
+	builder.ExternalParallelTransition().
+		From(StateB).
+		ToAmong(StateC, StateD).
+		On(Event1).
+		When(nil).
+		PerformFunc(failing)
+
+	sm, err := builder.Build("TestActionError_KeepsCause")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+	defer RemoveStateMachine("TestActionError_KeepsCause")
+
+	_, fireErr := sm.FireEvent(StateA, Event1, testPayload{})
+	_, parallelErr := sm.FireParallelEvent(StateB, Event1, testPayload{})
+
+	for name, err := range map[string]error{"FireEvent": fireErr, "FireParallelEvent": parallelErr} {
+		if !errors.Is(err, ErrActionExecutionFailed) {
+			t.Errorf("%s: expected ErrActionExecutionFailed, got %v", name, err)
+		}
+		if !errors.Is(err, cause) {
+			t.Errorf("%s: expected error to wrap the action's error, got %v", name, err)
+		}
+		if err == nil || err.Error() != "action execution failed: db timeout" {
+			t.Errorf("%s: unexpected error message %q", name, err)
+		}
 	}
 }

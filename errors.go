@@ -17,3 +17,21 @@ var (
 	ErrDuplicateTransition      = errors.New("duplicate transition detected")
 	ErrNoTransitionsDefined     = errors.New("no transitions defined in state machine")
 )
+
+// actionError wraps the error returned by a transition action.
+// It matches ErrActionExecutionFailed via errors.Is and unwraps to the original cause.
+type actionError struct {
+	cause error
+}
+
+func (e *actionError) Error() string {
+	return ErrActionExecutionFailed.Error() + ": " + e.cause.Error()
+}
+
+func (e *actionError) Is(target error) bool {
+	return target == ErrActionExecutionFailed
+}
+
+func (e *actionError) Unwrap() error {
+	return e.cause
+}
