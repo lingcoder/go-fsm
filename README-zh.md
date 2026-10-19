@@ -201,6 +201,8 @@ diagrams := stateMachine.GenerateDiagram(fsm.PlantUML, fsm.MarkdownTable, fsm.Ma
 fmt.Println(diagrams)
 ```
 
+状态和转换按名称排序输出，每次生成的结果都一致。状态名和事件名可以包含空格、引号或 `|`：图中节点使用生成的 ID，标签会自动转义。
+
 ## 📄 许可证
 
 [MIT](LICENSE) © LingCoder

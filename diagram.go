@@ -5,9 +5,31 @@ import (
 	"strings"
 )
 
+// Escapers for labels, so state and event names with spaces, quotes, pipes or
+// line breaks can't break diagram syntax. Nodes always use generated aliases.
+var (
+	// plantUMLEscaper keeps a label on one line and inside its double quotes
+	plantUMLEscaper = strings.NewReplacer("\r", "", "\n", `\n`, `"`, `'`)
+
+	// mermaidEscaper keeps a label on one line and replaces double quotes with a Mermaid entity code
+	mermaidEscaper = strings.NewReplacer("\r", "", "\n", " ", `"`, "#quot;")
+
+	// markdownTextEscaper keeps a value on one line
+	markdownTextEscaper = strings.NewReplacer("\r", "", "\n", " ")
+
+	// markdownCellEscaper keeps a value on one line and inside its table cell
+	markdownCellEscaper = strings.NewReplacer("\r", "", "\n", " ", "|", `\|`)
+)
+
+// escapeLabel formats v and escapes it with the given escaper
+func escapeLabel(escaper *strings.Replacer, v any) string {
+	return escaper.Replace(fmt.Sprint(v))
+}
+
 // GenerateDiagram returns a diagram of the state machine in the specified formats
 // If formats is nil or empty, defaults to PlantUML
 // If multiple formats are provided, returns all requested formats concatenated
+// States and transitions are sorted by name, so the output is stable
 func (sm *StateMachineImpl[S, E, P]) GenerateDiagram(formats ...DiagramFormat) string {
 	if len(formats) == 0 {
 		return sm.generatePlantUML()
@@ -36,25 +58,35 @@ func (sm *StateMachineImpl[S, E, P]) GenerateDiagram(formats ...DiagramFormat) s
 	return result.String()
 }
 
+// stateAliases returns the states sorted by name and a diagram identifier for each
+// that is valid whatever the state's name
+func (sm *StateMachineImpl[S, E, P]) stateAliases(prefix string) ([]S, map[S]string) {
+	states := sortedKeys(sm.stateMap)
+	aliases := make(map[S]string, len(states))
+	for i, stateId := range states {
+		aliases[stateId] = fmt.Sprintf("%s%d", prefix, i)
+	}
+	return states, aliases
+}
+
 // generatePlantUML returns a PlantUML diagram of the state machine
 func (sm *StateMachineImpl[S, E, P]) generatePlantUML() string {
+	states, aliases := sm.stateAliases("s")
+
 	var sb strings.Builder
 	sb.WriteString("@startuml\n")
-	sb.WriteString(fmt.Sprintf("title StateMachine: %s\n", sm.id))
+	fmt.Fprintf(&sb, "title StateMachine: %s\n", escapeLabel(plantUMLEscaper, sm.id))
 
 	// Define states
-	for stateId := range sm.stateMap {
-		sb.WriteString(fmt.Sprintf("state \"%v\" as %v\n", stateId, stateId))
+	for _, stateId := range states {
+		fmt.Fprintf(&sb, "state \"%s\" as %s\n", escapeLabel(plantUMLEscaper, stateId), aliases[stateId])
 	}
 
 	// Define transitions
-	for _, state := range sm.stateMap {
-		for _, transitions := range state.eventTransitions {
-			for _, transition := range transitions {
-				sb.WriteString(fmt.Sprintf("%v --> %v : %v\n", transition.Source.id, transition.Target.id, transition.Event))
-			}
-		}
-	}
+	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+		fmt.Fprintf(&sb, "%s --> %s : %s\n",
+			aliases[transition.Source.id], aliases[transition.Target.id], escapeLabel(plantUMLEscaper, transition.Event))
+	})
 
 	sb.WriteString("@enduml\n")
 	return sb.String()
@@ -63,12 +95,12 @@ func (sm *StateMachineImpl[S, E, P]) generatePlantUML() string {
 // generateMarkdownTable returns a Markdown table representation of the state machine
 func (sm *StateMachineImpl[S, E, P]) generateMarkdownTable() string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# State Machine: %s\n\n", sm.id))
+	fmt.Fprintf(&sb, "# State Machine: %s\n\n", escapeLabel(markdownTextEscaper, sm.id))
 
 	// States section
 	sb.WriteString("## States\n\n")
-	for stateId := range sm.stateMap {
-		sb.WriteString(fmt.Sprintf("- `%v`\n", stateId))
+	for _, stateId := range sortedKeys(sm.stateMap) {
+		fmt.Fprintf(&sb, "- `%s`\n", escapeLabel(markdownTextEscaper, stateId))
 	}
 	sb.WriteString("\n")
 
@@ -77,58 +109,38 @@ func (sm *StateMachineImpl[S, E, P]) generateMarkdownTable() string {
 	sb.WriteString("| Source State | Event | Target State | Type |\n")
 	sb.WriteString("|-------------|-------|--------------|------|\n")
 
-	// Sort states for consistent output
-	stateIds := make([]S, 0, len(sm.stateMap))
-	for stateId := range sm.stateMap {
-		stateIds = append(stateIds, stateId)
-	}
-
-	// Sort events for each state
-	for _, sourceId := range stateIds {
-		sourceState := sm.stateMap[sourceId]
-
-		for event, transitions := range sourceState.eventTransitions {
-			for _, transition := range transitions {
-				transType := "External"
-				if transition.TransType == Internal {
-					transType = "Internal"
-				}
-				sb.WriteString(fmt.Sprintf("| `%v` | `%v` | `%v` | %s |\n",
-					sourceId, event, transition.Target.id, transType))
-			}
+	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+		transType := "External"
+		if transition.TransType == Internal {
+			transType = "Internal"
 		}
-	}
+		fmt.Fprintf(&sb, "| `%s` | `%s` | `%s` | %s |\n",
+			escapeLabel(markdownCellEscaper, transition.Source.id),
+			escapeLabel(markdownCellEscaper, transition.Event),
+			escapeLabel(markdownCellEscaper, transition.Target.id),
+			transType)
+	})
 
 	return sb.String()
 }
 
 // generateMarkdownFlow returns a Mermaid flowchart diagram in Markdown format
 func (sm *StateMachineImpl[S, E, P]) generateMarkdownFlow() string {
+	states, aliases := sm.stateAliases("state_")
+
 	var sb strings.Builder
 	sb.WriteString("```mermaid\nflowchart TD\n")
 
-	// Define node IDs - we need to ensure they are valid Mermaid IDs
-	nodeIds := make(map[S]string)
-	i := 0
-	for stateId := range sm.stateMap {
-		// Create a valid Mermaid ID (alphanumeric and underscores only)
-		nodeIds[stateId] = fmt.Sprintf("state_%d", i)
-		sb.WriteString(fmt.Sprintf("    %s[\"%v\"]\n", nodeIds[stateId], stateId))
-		i++
+	// Define nodes
+	for _, stateId := range states {
+		fmt.Fprintf(&sb, "    %s[\"%s\"]\n", aliases[stateId], escapeLabel(mermaidEscaper, stateId))
 	}
 
-	// Define transitions
-	for _, state := range sm.stateMap {
-		sourceNodeId := nodeIds[state.id]
-
-		for event, transitions := range state.eventTransitions {
-			for _, transition := range transitions {
-				targetNodeId := nodeIds[transition.Target.id]
-				sb.WriteString(fmt.Sprintf("    %s -->|%v| %s\n",
-					sourceNodeId, event, targetNodeId))
-			}
-		}
-	}
+	// Define transitions; quoted labels may contain the | that delimits them
+	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+		fmt.Fprintf(&sb, "    %s -->|\"%s\"| %s\n",
+			aliases[transition.Source.id], escapeLabel(mermaidEscaper, transition.Event), aliases[transition.Target.id])
+	})
 
 	sb.WriteString("```\n")
 	return sb.String()
@@ -136,23 +148,25 @@ func (sm *StateMachineImpl[S, E, P]) generateMarkdownFlow() string {
 
 // generateMarkdownStateDiagram returns a Mermaid state diagram in Markdown format
 func (sm *StateMachineImpl[S, E, P]) generateMarkdownStateDiagram() string {
+	states, aliases := sm.stateAliases("s")
+
 	var sb strings.Builder
 	sb.WriteString("```mermaid\nstateDiagram-v2\n")
 
-	// Add transitions (states are automatically created in Mermaid)
-	for _, state := range sm.stateMap {
-		for event, transitions := range state.eventTransitions {
-			for _, transition := range transitions {
-				if transition.TransType == External {
-					sb.WriteString(fmt.Sprintf("    %v --> %v : %v\n",
-						transition.Source.id, transition.Target.id, event))
-				} else {
-					sb.WriteString(fmt.Sprintf("    %v --> %v : %v [internal]\n",
-						transition.Source.id, transition.Target.id, event))
-				}
-			}
-		}
+	// Declare states, since a state ID can't contain spaces
+	for _, stateId := range states {
+		fmt.Fprintf(&sb, "    state \"%s\" as %s\n", escapeLabel(mermaidEscaper, stateId), aliases[stateId])
 	}
+
+	// Define transitions
+	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+		marker := ""
+		if transition.TransType == Internal {
+			marker = " [internal]"
+		}
+		fmt.Fprintf(&sb, "    %s --> %s : %s%s\n",
+			aliases[transition.Source.id], aliases[transition.Target.id], escapeLabel(mermaidEscaper, transition.Event), marker)
+	})
 
 	sb.WriteString("```\n")
 	return sb.String()

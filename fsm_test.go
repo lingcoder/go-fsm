@@ -1964,3 +1964,98 @@ func TestOn_PerformWithoutCondition(t *testing.T) {
 		t.Errorf("Expected [%v %v], got %v (err: %v)", StateA, StateD, results, err)
 	}
 }
+
+// TestShowStateMachine_StableOrder tests that output is sorted by name instead of following map order
+func TestShowStateMachine_StableOrder(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().From(StateC).To(StateA).On(Event1).Perform(&noopAction{})
+	builder.ExternalTransition().From(StateA).To(StateB).On(Event2).Perform(&noopAction{})
+	builder.ExternalTransition().From(StateB).To(StateC).On(Event3).Perform(&noopAction{})
+	builder.ExternalTransition().From(StateA).To(StateC).On(Event1).Perform(&noopAction{})
+
+	sm, err := builder.Build("TestShowStateMachine_StableOrder")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+
+	expected := "StateMachine(id=TestShowStateMachine_StableOrder):\n" +
+		"  A --Event1(EXTERNAL)--> C\n" +
+		"  A --Event2(EXTERNAL)--> B\n" +
+		"  B --Event3(EXTERNAL)--> C\n" +
+		"  C --Event1(EXTERNAL)--> A\n"
+
+	// Map iteration order is random, so repeat to catch any dependency on it
+	for i := 0; i < 20; i++ {
+		if output := sm.ShowStateMachine(); output != expected {
+			t.Fatalf("Unexpected output on run %d:\n%s\nexpected:\n%s", i+1, output, expected)
+		}
+	}
+}
+
+// TestGenerateDiagram_EscapesNames tests that names with spaces, quotes, pipes and line breaks
+// produce valid diagram syntax, in a stable order
+func TestGenerateDiagram_EscapesNames(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().
+		From("Pending Payment").
+		To(`Say "hi"`).
+		On("pay|card").
+		Perform(&noopAction{})
+
+	builder.InternalTransition().
+		Within(`Say "hi"`).
+		On("multi\nline").
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestGenerateDiagram_EscapesNames")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
+	}
+
+	tests := []struct {
+		format   DiagramFormat
+		expected string
+	}{
+		{PlantUML, "@startuml\n" +
+			"title StateMachine: TestGenerateDiagram_EscapesNames\n" +
+			"state \"Pending Payment\" as s0\n" +
+			"state \"Say 'hi'\" as s1\n" +
+			"s0 --> s1 : pay|card\n" +
+			"s1 --> s1 : multi\\nline\n" +
+			"@enduml\n"},
+		{MarkdownFlowchart, "```mermaid\nflowchart TD\n" +
+			"    state_0[\"Pending Payment\"]\n" +
+			"    state_1[\"Say #quot;hi#quot;\"]\n" +
+			"    state_0 -->|\"pay|card\"| state_1\n" +
+			"    state_1 -->|\"multi line\"| state_1\n" +
+			"```\n"},
+		{MarkdownStateDiagram, "```mermaid\nstateDiagram-v2\n" +
+			"    state \"Pending Payment\" as s0\n" +
+			"    state \"Say #quot;hi#quot;\" as s1\n" +
+			"    s0 --> s1 : pay|card\n" +
+			"    s1 --> s1 : multi line [internal]\n" +
+			"```\n"},
+		{MarkdownTable, "# State Machine: TestGenerateDiagram_EscapesNames\n\n" +
+			"## States\n\n" +
+			"- `Pending Payment`\n" +
+			"- `Say \"hi\"`\n\n" +
+			"## Transitions\n\n" +
+			"| Source State | Event | Target State | Type |\n" +
+			"|-------------|-------|--------------|------|\n" +
+			"| `Pending Payment` | `pay\\|card` | `Say \"hi\"` | External |\n" +
+			"| `Say \"hi\"` | `multi line` | `Say \"hi\"` | Internal |\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("Format_%d", tt.format), func(t *testing.T) {
+			// Map iteration order is random, so repeat to catch any dependency on it
+			for i := 0; i < 20; i++ {
+				if output := sm.GenerateDiagram(tt.format); output != tt.expected {
+					t.Fatalf("Unexpected output on run %d:\n%s\nexpected:\n%s", i+1, output, tt.expected)
+				}
+			}
+		})
+	}
+}
