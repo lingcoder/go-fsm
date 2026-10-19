@@ -150,7 +150,7 @@ func main() {
 - **Internal Transition**: Actions within the same state
 - **Parallel Transition**: Transition to multiple states simultaneously. Fire it with `FireParallelEvent`; if an action fails, the remaining transitions are skipped and the states already reached are returned with the error
 
-`When` is optional: `On(event).Perform(action)` defines a transition without condition. `Build` rejects definitions that never reach `Perform`, duplicate transitions, and transitions that can never fire.
+`When` is optional: `On(event).Perform(action)` defines a transition without condition. As in COLA, when several transitions share a state and event, the first one whose condition is satisfied fires, and the transition without condition is the fallback. `Build` rejects definitions that never reach `Perform`, a second transition for the same source, event and target, and a second fallback for the same state and event.
 
 ### Registry
 
