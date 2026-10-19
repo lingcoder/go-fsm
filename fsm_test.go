@@ -712,17 +712,19 @@ func TestBuild_NoTransitions(t *testing.T) {
 func TestBuild_DuplicateTransition(t *testing.T) {
 	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
 
-	// Add the same unconditional transition twice
+	// Add the same transition twice
 	builder.ExternalTransition().
 		From(StateA).
 		To(StateB).
 		On(Event1).
+		When(&alwaysTrueCondition{}).
 		Perform(&noopAction{})
 
 	builder.ExternalTransition().
 		From(StateA).
 		To(StateB).
 		On(Event1).
+		When(&alwaysTrueCondition{}).
 		Perform(&noopAction{})
 
 	_, err := builder.Build("TestBuild_DuplicateTransition")
@@ -1736,76 +1738,83 @@ func TestBuild_MixedTransitions(t *testing.T) {
 	}
 }
 
-// TestBuild_ConditionalTransitionsSameTarget tests that transitions to the same target
-// with different conditions are allowed
-func TestBuild_ConditionalTransitionsSameTarget(t *testing.T) {
+// TestBuild_DuplicateTransitionIgnoresCondition tests that, as in COLA, a source, event and target
+// allow only one transition even if the conditions differ
+func TestBuild_DuplicateTransitionIgnoresCondition(t *testing.T) {
 	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
 
-	var executed []string
 	builder.InternalTransition().
 		Within(StateA).
 		On(Event1).
 		When(&valueCondition{expectedValue: "up"}).
-		PerformFunc(func(from, to testState, event testEvent, payload testPayload) error {
-			executed = append(executed, "up")
-			return nil
-		})
+		Perform(&noopAction{})
 
 	builder.InternalTransition().
 		Within(StateA).
 		On(Event1).
 		When(&valueCondition{expectedValue: "down"}).
-		PerformFunc(func(from, to testState, event testEvent, payload testPayload) error {
-			executed = append(executed, "down")
-			return nil
-		})
+		Perform(&noopAction{})
 
-	sm, err := builder.Build("TestBuild_ConditionalTransitionsSameTarget")
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-
-	newState, err := sm.FireEvent(StateA, Event1, testPayload{Value: "down"})
-	if err != nil || newState != StateA {
-		t.Errorf("Expected StateA, got %v (err: %v)", newState, err)
-	}
-	if len(executed) != 1 || executed[0] != "down" {
-		t.Errorf("Expected only the down action to run, got %v", executed)
+	_, err := builder.Build("TestBuild_DuplicateTransitionIgnoresCondition")
+	if !errors.Is(err, ErrDuplicateTransition) {
+		t.Errorf("Expected ErrDuplicateTransition, got %v", err)
 	}
 }
 
-// TestBuild_UnreachableTransition tests that transitions defined after an unconditional one are rejected
-func TestBuild_UnreachableTransition(t *testing.T) {
-	tests := []struct {
-		name      string
-		condition Condition[testPayload]
-	}{
-		{"Unconditional", nil},
-		{"Conditional", &alwaysTrueCondition{}},
+// TestBuild_MultipleUnconditionalTransitions tests that only one fallback transition is allowed per state and event
+func TestBuild_MultipleUnconditionalTransitions(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		Perform(&noopAction{})
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateC).
+		On(Event1).
+		WhenFunc(nil).
+		Perform(&noopAction{})
+
+	_, err := builder.Build("TestBuild_MultipleUnconditionalTransitions")
+	if !errors.Is(err, ErrAmbiguousTransition) {
+		t.Errorf("Expected ErrAmbiguousTransition, got %v", err)
+	}
+}
+
+// TestFireEvent_UnconditionalIsFallback tests that, as in COLA, a satisfied condition wins over
+// an unconditional transition defined before it
+func TestFireEvent_UnconditionalIsFallback(t *testing.T) {
+	builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateB).
+		On(Event1).
+		Perform(&noopAction{})
+
+	builder.ExternalTransition().
+		From(StateA).
+		To(StateC).
+		On(Event1).
+		When(&valueCondition{expectedValue: "toC"}).
+		Perform(&noopAction{})
+
+	sm, err := builder.Build("TestFireEvent_UnconditionalIsFallback")
+	if err != nil {
+		t.Fatalf("Failed to build state machine: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			builder := NewStateMachineBuilder[testState, testEvent, testPayload]()
+	newState, err := sm.FireEvent(StateA, Event1, testPayload{Value: "toC"})
+	if err != nil || newState != StateC {
+		t.Errorf("Expected StateC, got %v (err: %v)", newState, err)
+	}
 
-			builder.ExternalTransition().
-				From(StateA).
-				To(StateB).
-				On(Event1).
-				Perform(&noopAction{})
-
-			builder.ExternalTransition().
-				From(StateA).
-				To(StateC).
-				On(Event1).
-				When(tt.condition).
-				Perform(&noopAction{})
-
-			_, err := builder.Build("TestBuild_UnreachableTransition")
-			if !errors.Is(err, ErrUnreachableTransition) {
-				t.Errorf("Expected ErrUnreachableTransition, got %v", err)
-			}
-		})
+	newState, err = sm.FireEvent(StateA, Event1, testPayload{Value: "other"})
+	if err != nil || newState != StateB {
+		t.Errorf("Expected fallback StateB, got %v (err: %v)", newState, err)
 	}
 }
 

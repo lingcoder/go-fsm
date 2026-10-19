@@ -17,7 +17,7 @@ var (
 	ErrDuplicateTransition      = errors.New("duplicate transition detected")
 	ErrNoTransitionsDefined     = errors.New("no transitions defined in state machine")
 	ErrIncompleteTransition     = errors.New("transition definition is missing Perform")
-	ErrUnreachableTransition    = errors.New("transition is unreachable after an unconditional transition")
+	ErrAmbiguousTransition      = errors.New("multiple unconditional transitions defined for the same state and event")
 	ErrMixedTransitions         = errors.New("parallel and non-parallel transitions defined for the same state and event")
 	ErrParallelTransition       = errors.New("parallel transition must be fired with FireParallelEvent")
 )

@@ -28,6 +28,8 @@ import (
 type StateMachine[S comparable, E comparable, P any] interface {
 	// FireEvent triggers a state transition based on the current state and event
 	// Returns the new state and any error that occurred
+	// The first transition whose condition is satisfied fires; a transition without
+	// condition is the fallback when none is satisfied
 	// Returns ErrParallelTransition if the event is defined as a parallel transition
 	FireEvent(sourceState S, event E, payload P) (S, error)
 
@@ -304,22 +306,33 @@ func (sm *StateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload
 		return zeroState, ErrParallelTransition
 	}
 
-	// Find the first transition with satisfied condition
+	// Conditional transitions are tried in definition order and the first satisfied one wins;
+	// as in COLA, the unconditional transition is the fallback when none of them is satisfied
+	var selected, fallback *Transition[S, E, P]
 	for _, transition := range transitions {
-		if transition.Condition == nil || transition.Condition.IsSatisfied(payload) {
-			// Skip the condition check in Transit: a second evaluation could disagree
-			// and silently return the source state without running the action
-			targetState, err := transition.Transit(payload, false)
-			if err != nil {
-				var zeroState S
-				return zeroState, err
-			}
-			return targetState.GetID(), nil
+		if isUnconditional(transition.Condition) {
+			fallback = transition
+		} else if transition.Condition.IsSatisfied(payload) {
+			selected = transition
+			break
 		}
 	}
+	if selected == nil {
+		selected = fallback
+	}
+	if selected == nil {
+		var zeroState S
+		return zeroState, ErrConditionNotMet
+	}
 
-	var zeroState S
-	return zeroState, ErrConditionNotMet
+	// Skip the condition check in Transit: a second evaluation could disagree
+	// and silently return the source state without running the action
+	targetState, err := selected.Transit(payload, false)
+	if err != nil {
+		var zeroState S
+		return zeroState, err
+	}
+	return targetState.GetID(), nil
 }
 
 // FireParallelEvent triggers parallel state transitions based on the current state and event

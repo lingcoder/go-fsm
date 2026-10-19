@@ -149,7 +149,7 @@ func main() {
 - **内部转换 (Internal Transition)**: 同一状态内的动作
 - **并行转换 (Parallel Transition)**: 同时转换到多个状态。需要用 `FireParallelEvent` 触发；某个动作失败时会跳过剩余的转换，并把已经到达的状态和错误一起返回
 
-`When` 可以省略：`On(event).Perform(action)` 定义一个无条件转换。`Build` 会拒绝没有调用 `Perform` 的定义、重复的转换，以及永远不会触发的转换。
+`When` 可以省略：`On(event).Perform(action)` 定义一个无条件转换。与 COLA 一致，同一状态和事件下有多个转换时，第一个满足条件的转换生效，无条件转换作为兜底。`Build` 会拒绝没有调用 `Perform` 的定义、源状态、事件和目标状态都相同的重复转换，以及同一状态和事件下的第二个兜底转换。
 
 ### 注册表
 

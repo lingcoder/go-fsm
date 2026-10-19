@@ -229,37 +229,25 @@ func (b *StateMachineBuilder[S, E, P]) validate() error {
 // validateTransitions checks the transitions defined for one source state and event
 func validateTransitions[S comparable, E comparable, P any](source S, event E, transitions []*Transition[S, E, P]) error {
 	parallel := transitions[0].parallel
-	for _, t := range transitions[1:] {
+	seen := make(map[S]bool, len(transitions))
+	hasFallback := false
+	for _, t := range transitions {
 		if t.parallel != parallel {
 			return fmt.Errorf("%w: %v -[%v]->", ErrMixedTransitions, source, event)
 		}
-	}
 
-	if parallel {
-		// Every satisfied parallel transition fires, so a repeated target would be entered twice
-		seen := make(map[S]bool, len(transitions))
-		for _, t := range transitions {
-			if seen[t.Target.id] {
-				return fmt.Errorf("%w: %v -[%v]-> %v", ErrDuplicateTransition, source, event, t.Target.id)
-			}
-			seen[t.Target.id] = true
+		// As in COLA, a source, event and target allow only one transition, whatever its condition
+		if seen[t.Target.id] {
+			return fmt.Errorf("%w: %v -[%v]-> %v", ErrDuplicateTransition, source, event, t.Target.id)
 		}
-		return nil
-	}
+		seen[t.Target.id] = true
 
-	// Non-parallel transitions are tried in order and the first satisfied one wins,
-	// so nothing defined after an unconditional transition can ever fire.
-	// Transitions with conditions may share a target: their conditions can't be compared.
-	var unconditional *Transition[S, E, P]
-	for _, t := range transitions {
-		if unconditional != nil {
-			if t.Target == unconditional.Target && isUnconditional(t.Condition) {
-				return fmt.Errorf("%w: %v -[%v]-> %v", ErrDuplicateTransition, source, event, t.Target.id)
+		// FireEvent falls back to the unconditional transition, so there can be only one
+		if !parallel && isUnconditional(t.Condition) {
+			if hasFallback {
+				return fmt.Errorf("%w: %v -[%v]-> %v", ErrAmbiguousTransition, source, event, t.Target.id)
 			}
-			return fmt.Errorf("%w: %v -[%v]-> %v", ErrUnreachableTransition, source, event, t.Target.id)
-		}
-		if isUnconditional(t.Condition) {
-			unconditional = t
+			hasFallback = true
 		}
 	}
 
