@@ -163,6 +163,30 @@ if err := fsm.RegisterStateMachine("OrderStateMachine", stateMachine); err != ni
 sm, err := fsm.GetStateMachine[OrderState, OrderEvent, OrderPayload]("OrderStateMachine")
 ```
 
+### 传递 Context
+
+与 COLA 一致，条件和动作只接收载荷。如果动作需要 `context.Context` 来控制超时、取消或做链路追踪，请把它放在载荷里：
+
+```go
+type OrderPayload struct {
+	Ctx     context.Context
+	OrderID string
+}
+
+builder.ExternalTransition().
+	From(OrderCreated).
+	To(OrderPaid).
+	On(EventPay).
+	PerformFunc(func(from, to OrderState, event OrderEvent, payload OrderPayload) error {
+		_, err := db.ExecContext(payload.Ctx, "UPDATE orders SET status = ? WHERE id = ?", to, payload.OrderID)
+		return err
+	})
+
+newState, err := stateMachine.FireEvent(OrderCreated, EventPay, OrderPayload{Ctx: ctx, OrderID: orderID})
+```
+
+每次调用都新建一个载荷，不要把它保存下来，这样 context 不会比请求活得更久。
+
 ## 📚 示例
 
 查看 `examples` 目录获取更详细的示例：

@@ -164,6 +164,30 @@ if err := fsm.RegisterStateMachine("OrderStateMachine", stateMachine); err != ni
 sm, err := fsm.GetStateMachine[OrderState, OrderEvent, OrderPayload]("OrderStateMachine")
 ```
 
+### Passing a Context
+
+As in COLA, conditions and actions receive only the payload. When an action needs a `context.Context` for deadlines, cancellation or tracing, carry it in the payload:
+
+```go
+type OrderPayload struct {
+	Ctx     context.Context
+	OrderID string
+}
+
+builder.ExternalTransition().
+	From(OrderCreated).
+	To(OrderPaid).
+	On(EventPay).
+	PerformFunc(func(from, to OrderState, event OrderEvent, payload OrderPayload) error {
+		_, err := db.ExecContext(payload.Ctx, "UPDATE orders SET status = ? WHERE id = ?", to, payload.OrderID)
+		return err
+	})
+
+newState, err := stateMachine.FireEvent(OrderCreated, EventPay, OrderPayload{Ctx: ctx, OrderID: orderID})
+```
+
+Create a new payload for each call rather than storing it, so the context never outlives the request.
+
 ## 📚 Examples
 
 Check the `examples` directory for more detailed examples:
