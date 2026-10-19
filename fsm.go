@@ -66,66 +66,44 @@ const (
 	MarkdownStateDiagram
 )
 
-// State represents a state in the state machine
-type State[S comparable, E comparable, P any] struct {
+// stateImpl represents a state in the state machine
+type stateImpl[S comparable, E comparable, P any] struct {
 	id               S
-	eventTransitions map[E][]*Transition[S, E, P]
+	eventTransitions map[E][]*transitionImpl[S, E, P]
 }
 
-// NewState creates a new state
-func NewState[S comparable, E comparable, P any](id S) *State[S, E, P] {
-	return &State[S, E, P]{
+// newState creates a new state
+func newState[S comparable, E comparable, P any](id S) *stateImpl[S, E, P] {
+	return &stateImpl[S, E, P]{
 		id:               id,
-		eventTransitions: make(map[E][]*Transition[S, E, P]),
+		eventTransitions: make(map[E][]*transitionImpl[S, E, P]),
 	}
 }
 
-// AddTransition adds a transition to this state
-func (s *State[S, E, P]) AddTransition(event E, target *State[S, E, P], transType TransitionType) *Transition[S, E, P] {
-	transition := &Transition[S, E, P]{
-		Source:    s,
-		Target:    target,
-		Event:     event,
-		TransType: transType,
+// addTransition adds a transition to this state
+func (s *stateImpl[S, E, P]) addTransition(event E, target *stateImpl[S, E, P], transType transitionType) *transitionImpl[S, E, P] {
+	transition := &transitionImpl[S, E, P]{
+		source:    s,
+		target:    target,
+		event:     event,
+		transType: transType,
 	}
 
 	if _, ok := s.eventTransitions[event]; !ok {
-		s.eventTransitions[event] = make([]*Transition[S, E, P], 0)
+		s.eventTransitions[event] = make([]*transitionImpl[S, E, P], 0)
 	}
 	s.eventTransitions[event] = append(s.eventTransitions[event], transition)
 	return transition
 }
 
-// AddParallelTransitions adds multiple transitions for the same event to different target states
-func (s *State[S, E, P]) AddParallelTransitions(event E, targets []*State[S, E, P], transType TransitionType) []*Transition[S, E, P] {
-	transitions := make([]*Transition[S, E, P], 0, len(targets))
-
-	for _, target := range targets {
-		transition := s.AddTransition(event, target, transType)
-		transitions = append(transitions, transition)
-	}
-
-	return transitions
-}
-
-// GetEventTransitions returns all transitions for a given event
-func (s *State[S, E, P]) GetEventTransitions(event E) []*Transition[S, E, P] {
-	return s.eventTransitions[event]
-}
-
-// GetID returns the state ID
-func (s *State[S, E, P]) GetID() S {
-	return s.id
-}
-
-// TransitionType defines the type of transition
-type TransitionType int
+// transitionType defines the type of transition
+type transitionType int
 
 const (
-	// External transitions change the state from source to target
-	External TransitionType = iota
-	// Internal transitions don't change the state
-	Internal
+	// external transitions change the state from source to target
+	external transitionType = iota
+	// internal transitions don't change the state
+	internal
 )
 
 // Condition is an interface for transition conditions
@@ -173,57 +151,57 @@ func (f ActionFunc[S, E, P]) Execute(from, to S, event E, payload P) error {
 	return f(from, to, event, payload)
 }
 
-// Transition represents a state transition
-type Transition[S comparable, E comparable, P any] struct {
-	Source    *State[S, E, P]
-	Target    *State[S, E, P]
-	Event     E
-	Condition Condition[P]
-	Action    Action[S, E, P]
-	TransType TransitionType
+// transitionImpl represents a state transition
+type transitionImpl[S comparable, E comparable, P any] struct {
+	source    *stateImpl[S, E, P]
+	target    *stateImpl[S, E, P]
+	event     E
+	condition Condition[P]
+	action    Action[S, E, P]
+	transType transitionType
 
 	// parallel marks transitions defined with ExternalParallelTransition
 	parallel bool
 }
 
-// Transit executes the transition
-func (t *Transition[S, E, P]) Transit(payload P, checkCondition bool) (*State[S, E, P], error) {
+// transit executes the transition
+func (t *transitionImpl[S, E, P]) transit(payload P, checkCondition bool) (*stateImpl[S, E, P], error) {
 	// Verify internal transition
-	if t.TransType == Internal && t.Source != t.Target {
+	if t.transType == internal && t.source != t.target {
 		return nil, ErrInternalTransition
 	}
 
 	// Check condition if required
-	if checkCondition && t.Condition != nil && !t.Condition.IsSatisfied(payload) {
-		return t.Source, nil // Stay at source state if condition is not satisfied
+	if checkCondition && t.condition != nil && !t.condition.IsSatisfied(payload) {
+		return t.source, nil // Stay at source state if condition is not satisfied
 	}
 
 	// Execute action
-	if t.Action != nil {
-		if err := t.Action.Execute(t.Source.GetID(), t.Target.GetID(), t.Event, payload); err != nil {
+	if t.action != nil {
+		if err := t.action.Execute(t.source.id, t.target.id, t.event, payload); err != nil {
 			return nil, &actionError{
-				transition: fmt.Sprintf("%v -[%v]-> %v", t.Source.id, t.Event, t.Target.id),
+				transition: fmt.Sprintf("%v -[%v]-> %v", t.source.id, t.event, t.target.id),
 				cause:      err,
 			}
 		}
 	}
 
-	return t.Target, nil
+	return t.target, nil
 }
 
-// StateMachineImpl implements the StateMachine interface.
+// stateMachineImpl implements the StateMachine interface.
 // Once built it is never modified, so reads need no locking.
-type StateMachineImpl[S comparable, E comparable, P any] struct {
+type stateMachineImpl[S comparable, E comparable, P any] struct {
 	id       string
-	stateMap map[S]*State[S, E, P]
+	stateMap map[S]*stateImpl[S, E, P]
 	ready    bool
 }
 
 // newStateMachine creates a new state machine (package private)
-func newStateMachine[S comparable, E comparable, P any](id string) *StateMachineImpl[S, E, P] {
-	return &StateMachineImpl[S, E, P]{
+func newStateMachine[S comparable, E comparable, P any](id string) *stateMachineImpl[S, E, P] {
+	return &stateMachineImpl[S, E, P]{
 		id:       id,
-		stateMap: make(map[S]*State[S, E, P]),
+		stateMap: make(map[S]*stateImpl[S, E, P]),
 		ready:    false,
 	}
 }
@@ -231,7 +209,7 @@ func newStateMachine[S comparable, E comparable, P any](id string) *StateMachine
 // snapshot returns a ready deep copy of the state graph with the given id.
 // The copy shares no maps or slices with sm, so it stays immutable even if
 // the builder that owns sm keeps adding transitions.
-func (sm *StateMachineImpl[S, E, P]) snapshot(id string) *StateMachineImpl[S, E, P] {
+func (sm *stateMachineImpl[S, E, P]) snapshot(id string) *stateMachineImpl[S, E, P] {
 	clone := newStateMachine[S, E, P](id)
 	for stateId := range sm.stateMap {
 		clone.getOrCreateState(stateId)
@@ -242,9 +220,9 @@ func (sm *StateMachineImpl[S, E, P]) snapshot(id string) *StateMachineImpl[S, E,
 		for event, transitions := range state.eventTransitions {
 			// Keep the order within an event: FireEvent tries transitions in definition order
 			for _, t := range transitions {
-				copied := source.AddTransition(event, clone.stateMap[t.Target.id], t.TransType)
-				copied.Condition = t.Condition
-				copied.Action = t.Action
+				copied := source.addTransition(event, clone.stateMap[t.target.id], t.transType)
+				copied.condition = t.condition
+				copied.action = t.action
 				copied.parallel = t.parallel
 			}
 		}
@@ -256,7 +234,7 @@ func (sm *StateMachineImpl[S, E, P]) snapshot(id string) *StateMachineImpl[S, E,
 
 // forEachTransition calls fn for every transition, with states and events sorted by name
 // so output is stable even though Go randomizes map iteration order
-func (sm *StateMachineImpl[S, E, P]) forEachTransition(fn func(transition *Transition[S, E, P])) {
+func (sm *stateMachineImpl[S, E, P]) forEachTransition(fn func(transition *transitionImpl[S, E, P])) {
 	for _, stateId := range sortedKeys(sm.stateMap) {
 		state := sm.stateMap[stateId]
 		for _, event := range sortedKeys(state.eventTransitions) {
@@ -280,7 +258,7 @@ func sortedKeys[K comparable, V any](m map[K]V) []K {
 }
 
 // FireEvent triggers a state transition based on the current state and event
-func (sm *StateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload P) (S, error) {
+func (sm *stateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload P) (S, error) {
 	if !sm.ready {
 		var zeroState S
 		return zeroState, ErrStateMachineNotReady
@@ -294,7 +272,7 @@ func (sm *StateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload
 	}
 
 	// Get transitions for the event
-	transitions := sourceState.GetEventTransitions(event)
+	transitions := sourceState.eventTransitions[event]
 	if transitions == nil || len(transitions) == 0 {
 		var zeroState S
 		return zeroState, ErrTransitionNotFound
@@ -308,11 +286,11 @@ func (sm *StateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload
 
 	// Conditional transitions are tried in definition order and the first satisfied one wins;
 	// as in COLA, the unconditional transition is the fallback when none of them is satisfied
-	var selected, fallback *Transition[S, E, P]
+	var selected, fallback *transitionImpl[S, E, P]
 	for _, transition := range transitions {
-		if isUnconditional(transition.Condition) {
+		if isUnconditional(transition.condition) {
 			fallback = transition
-		} else if transition.Condition.IsSatisfied(payload) {
+		} else if transition.condition.IsSatisfied(payload) {
 			selected = transition
 			break
 		}
@@ -327,16 +305,16 @@ func (sm *StateMachineImpl[S, E, P]) FireEvent(sourceStateId S, event E, payload
 
 	// Skip the condition check in Transit: a second evaluation could disagree
 	// and silently return the source state without running the action
-	targetState, err := selected.Transit(payload, false)
+	targetState, err := selected.transit(payload, false)
 	if err != nil {
 		var zeroState S
 		return zeroState, err
 	}
-	return targetState.GetID(), nil
+	return targetState.id, nil
 }
 
 // FireParallelEvent triggers parallel state transitions based on the current state and event
-func (sm *StateMachineImpl[S, E, P]) FireParallelEvent(sourceStateId S, event E, payload P) ([]S, error) {
+func (sm *stateMachineImpl[S, E, P]) FireParallelEvent(sourceStateId S, event E, payload P) ([]S, error) {
 	if !sm.ready {
 		return nil, ErrStateMachineNotReady
 	}
@@ -348,18 +326,18 @@ func (sm *StateMachineImpl[S, E, P]) FireParallelEvent(sourceStateId S, event E,
 	}
 
 	// Get transitions for the event
-	transitions := sourceState.GetEventTransitions(event)
+	transitions := sourceState.eventTransitions[event]
 	if transitions == nil || len(transitions) == 0 {
 		return nil, ErrTransitionNotFound
 	}
 
 	// Execute all transitions with satisfied conditions
 	var results []S
-	var validTransitions []*Transition[S, E, P]
+	var validTransitions []*transitionImpl[S, E, P]
 
 	// First, find all valid transitions
 	for _, transition := range transitions {
-		if transition.Condition == nil || transition.Condition.IsSatisfied(payload) {
+		if transition.condition == nil || transition.condition.IsSatisfied(payload) {
 			validTransitions = append(validTransitions, transition)
 		}
 	}
@@ -371,18 +349,18 @@ func (sm *StateMachineImpl[S, E, P]) FireParallelEvent(sourceStateId S, event E,
 	// Then execute all valid transitions, stopping at the first failure.
 	// Actions that already ran can't be undone, so report the states reached so far.
 	for _, transition := range validTransitions {
-		targetState, err := transition.Transit(payload, false) // Skip condition check as we've already verified it
+		targetState, err := transition.transit(payload, false) // Skip condition check as we've already verified it
 		if err != nil {
 			return results, err
 		}
-		results = append(results, targetState.GetID())
+		results = append(results, targetState.id)
 	}
 
 	return results, nil
 }
 
 // Verify checks if there is a valid transition for the given state and event
-func (sm *StateMachineImpl[S, E, P]) Verify(sourceStateId S, event E) bool {
+func (sm *stateMachineImpl[S, E, P]) Verify(sourceStateId S, event E) bool {
 	if !sm.ready {
 		return false
 	}
@@ -394,7 +372,7 @@ func (sm *StateMachineImpl[S, E, P]) Verify(sourceStateId S, event E) bool {
 	}
 
 	// Get transitions for the event
-	transitions := sourceState.GetEventTransitions(event)
+	transitions := sourceState.eventTransitions[event]
 
 	// Return true if there is at least one transition for this event
 	return transitions != nil && len(transitions) > 0
@@ -402,28 +380,28 @@ func (sm *StateMachineImpl[S, E, P]) Verify(sourceStateId S, event E) bool {
 
 // getOrCreateState returns a state by ID, creating it if it doesn't exist.
 // Only the builder calls it, before the machine is built.
-func (sm *StateMachineImpl[S, E, P]) getOrCreateState(stateId S) *State[S, E, P] {
+func (sm *stateMachineImpl[S, E, P]) getOrCreateState(stateId S) *stateImpl[S, E, P] {
 	if state, ok := sm.stateMap[stateId]; ok {
 		return state
 	}
 
-	state := NewState[S, E, P](stateId)
+	state := newState[S, E, P](stateId)
 	sm.stateMap[stateId] = state
 	return state
 }
 
 // ShowStateMachine returns a string representation of the state machine
-func (sm *StateMachineImpl[S, E, P]) ShowStateMachine() string {
+func (sm *stateMachineImpl[S, E, P]) ShowStateMachine() string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "StateMachine(id=%s):\n", sm.id)
 
-	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+	sm.forEachTransition(func(transition *transitionImpl[S, E, P]) {
 		transType := "EXTERNAL"
-		if transition.TransType == Internal {
+		if transition.transType == internal {
 			transType = "INTERNAL"
 		}
 		fmt.Fprintf(&sb, "  %v --%v(%s)--> %v\n",
-			transition.Source.GetID(), transition.Event, transType, transition.Target.GetID())
+			transition.source.id, transition.event, transType, transition.target.id)
 	})
 
 	return sb.String()

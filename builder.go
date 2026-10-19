@@ -2,14 +2,13 @@ package fsm
 
 import "fmt"
 
-// FromStep Step marker interfaces to enforce the correct order of method calls
-type FromStep interface{}
-type ToStep interface{}
-type OnStep interface{}
-type WhenStep interface{}
-type PerformStep interface{}
-type ToAmongStep interface{}
-type WithinStep interface{}
+// Step markers are phantom type parameters recording where a builder is in the method chain
+type fromStep interface{}
+type toStep interface{}
+type onStep interface{}
+type whenStep interface{}
+type performStep interface{}
+type toAmongStep interface{}
 
 // TransitionStarterInterface is the interface for starting a transition definition
 type TransitionStarterInterface[S comparable, E comparable, P any] interface {
@@ -92,26 +91,26 @@ type ParallelFromInterface[S comparable, E comparable, P any] interface {
 // Type assertions to ensure implementations satisfy interfaces
 var (
 	_ TransitionStarterInterface[string, string, any]                 = (*StateMachineBuilder[string, string, any])(nil)
-	_ ExternalTransitionBuilderInterface[string, string, any]         = (*TransitionBuilder[string, string, any, FromStep])(nil)
-	_ ExternalTransitionsBuilderInterface[string, string, any]        = (*ExternalTransitionsBuilder[string, string, any])(nil)
-	_ ExternalParallelTransitionBuilderInterface[string, string, any] = (*ExternalParallelTransitionBuilder[string, string, any])(nil)
-	_ InternalTransitionBuilderInterface[string, string, any]         = (*InternalTransitionBuilder[string, string, any])(nil)
-	_ ParallelFromInterface[string, string, any]                      = (*ParallelFromBuilder[string, string, any, ToAmongStep])(nil)
-	_ ToInterface[string, string, any]                                = (*ParallelFromBuilder[string, string, any, OnStep])(nil)
-	_ OnInterface[string, string, any]                                = (*ParallelFromBuilder[string, string, any, WhenStep])(nil)
-	_ WhenInterface[string, string, any]                              = (*ParallelFromBuilder[string, string, any, PerformStep])(nil)
-	_ FromInterface[string, string, any]                              = (*FromBuilder[string, string, any, ToStep])(nil)
-	_ ToInterface[string, string, any]                                = (*FromBuilder[string, string, any, OnStep])(nil)
-	_ OnInterface[string, string, any]                                = (*FromBuilder[string, string, any, WhenStep])(nil)
-	_ WhenInterface[string, string, any]                              = (*FromBuilder[string, string, any, PerformStep])(nil)
-	_ ToInterface[string, string, any]                                = (*OnTransitionBuilder[string, string, any, OnStep])(nil)
-	_ OnInterface[string, string, any]                                = (*OnTransitionBuilder[string, string, any, WhenStep])(nil)
-	_ WhenInterface[string, string, any]                              = (*OnTransitionBuilder[string, string, any, PerformStep])(nil)
+	_ ExternalTransitionBuilderInterface[string, string, any]         = (*transitionBuilder[string, string, any, fromStep])(nil)
+	_ ExternalTransitionsBuilderInterface[string, string, any]        = (*externalTransitionsBuilder[string, string, any])(nil)
+	_ ExternalParallelTransitionBuilderInterface[string, string, any] = (*externalParallelTransitionBuilder[string, string, any])(nil)
+	_ InternalTransitionBuilderInterface[string, string, any]         = (*internalTransitionBuilder[string, string, any])(nil)
+	_ ParallelFromInterface[string, string, any]                      = (*parallelFromBuilder[string, string, any, toAmongStep])(nil)
+	_ ToInterface[string, string, any]                                = (*parallelFromBuilder[string, string, any, onStep])(nil)
+	_ OnInterface[string, string, any]                                = (*parallelFromBuilder[string, string, any, whenStep])(nil)
+	_ WhenInterface[string, string, any]                              = (*parallelFromBuilder[string, string, any, performStep])(nil)
+	_ FromInterface[string, string, any]                              = (*fromBuilder[string, string, any, toStep])(nil)
+	_ ToInterface[string, string, any]                                = (*fromBuilder[string, string, any, onStep])(nil)
+	_ OnInterface[string, string, any]                                = (*fromBuilder[string, string, any, whenStep])(nil)
+	_ WhenInterface[string, string, any]                              = (*fromBuilder[string, string, any, performStep])(nil)
+	_ ToInterface[string, string, any]                                = (*onTransitionBuilder[string, string, any, onStep])(nil)
+	_ OnInterface[string, string, any]                                = (*onTransitionBuilder[string, string, any, whenStep])(nil)
+	_ WhenInterface[string, string, any]                              = (*onTransitionBuilder[string, string, any, performStep])(nil)
 )
 
 // StateMachineBuilder builds state machines with a fluent API
 type StateMachineBuilder[S comparable, E comparable, P any] struct {
-	stateMachine *StateMachineImpl[S, E, P]
+	stateMachine *stateMachineImpl[S, E, P]
 	chains       []transitionChain
 }
 
@@ -141,12 +140,12 @@ func NewStateMachineBuilder[S comparable, E comparable, P any]() *StateMachineBu
 //
 //	A transition builder for configuring the external transition
 func (b *StateMachineBuilder[S, E, P]) ExternalTransition() ExternalTransitionBuilderInterface[S, E, P] {
-	transitionBuilder := &TransitionBuilder[S, E, P, FromStep]{
+	chain := &transitionBuilder[S, E, P, fromStep]{
 		stateMachine:   b.stateMachine,
-		transitionType: External,
+		transitionType: external,
 	}
-	b.track(transitionBuilder)
-	return transitionBuilder
+	b.track(chain)
+	return chain
 }
 
 // InternalTransition starts defining an internal transition
@@ -154,7 +153,7 @@ func (b *StateMachineBuilder[S, E, P]) ExternalTransition() ExternalTransitionBu
 //
 //	A internal transition builder for configuring the internal transition
 func (b *StateMachineBuilder[S, E, P]) InternalTransition() InternalTransitionBuilderInterface[S, E, P] {
-	return &InternalTransitionBuilder[S, E, P]{
+	return &internalTransitionBuilder[S, E, P]{
 		builder: b,
 	}
 }
@@ -164,7 +163,7 @@ func (b *StateMachineBuilder[S, E, P]) InternalTransition() InternalTransitionBu
 //
 //	A external transitions builder for configuring the transitions
 func (b *StateMachineBuilder[S, E, P]) ExternalTransitions() ExternalTransitionsBuilderInterface[S, E, P] {
-	return &ExternalTransitionsBuilder[S, E, P]{
+	return &externalTransitionsBuilder[S, E, P]{
 		builder: b,
 	}
 }
@@ -174,7 +173,7 @@ func (b *StateMachineBuilder[S, E, P]) ExternalTransitions() ExternalTransitions
 //
 //	A external parallel transition builder for configuring the parallel transition
 func (b *StateMachineBuilder[S, E, P]) ExternalParallelTransition() ExternalParallelTransitionBuilderInterface[S, E, P] {
-	return &ExternalParallelTransitionBuilder[S, E, P]{
+	return &externalParallelTransitionBuilder[S, E, P]{
 		builder: b,
 	}
 }
@@ -227,7 +226,7 @@ func (b *StateMachineBuilder[S, E, P]) validate() error {
 }
 
 // validateTransitions checks the transitions defined for one source state and event
-func validateTransitions[S comparable, E comparable, P any](source S, event E, transitions []*Transition[S, E, P]) error {
+func validateTransitions[S comparable, E comparable, P any](source S, event E, transitions []*transitionImpl[S, E, P]) error {
 	parallel := transitions[0].parallel
 	seen := make(map[S]bool, len(transitions))
 	hasFallback := false
@@ -237,15 +236,15 @@ func validateTransitions[S comparable, E comparable, P any](source S, event E, t
 		}
 
 		// As in COLA, a source, event and target allow only one transition, whatever its condition
-		if seen[t.Target.id] {
-			return fmt.Errorf("%w: %v -[%v]-> %v", ErrDuplicateTransition, source, event, t.Target.id)
+		if seen[t.target.id] {
+			return fmt.Errorf("%w: %v -[%v]-> %v", ErrDuplicateTransition, source, event, t.target.id)
 		}
-		seen[t.Target.id] = true
+		seen[t.target.id] = true
 
 		// FireEvent falls back to the unconditional transition, so there can be only one
-		if !parallel && isUnconditional(t.Condition) {
+		if !parallel && isUnconditional(t.condition) {
 			if hasFallback {
-				return fmt.Errorf("%w: %v -[%v]-> %v", ErrAmbiguousTransition, source, event, t.Target.id)
+				return fmt.Errorf("%w: %v -[%v]-> %v", ErrAmbiguousTransition, source, event, t.target.id)
 			}
 			hasFallback = true
 		}
@@ -254,8 +253,8 @@ func validateTransitions[S comparable, E comparable, P any](source S, event E, t
 	return nil
 }
 
-// ExternalTransitionsBuilder builds external transitions from multiple source states to a single target state
-type ExternalTransitionsBuilder[S comparable, E comparable, P any] struct {
+// externalTransitionsBuilder builds external transitions from multiple source states to a single target state
+type externalTransitionsBuilder[S comparable, E comparable, P any] struct {
 	builder *StateMachineBuilder[S, E, P]
 }
 
@@ -267,18 +266,18 @@ type ExternalTransitionsBuilder[S comparable, E comparable, P any] struct {
 // Returns:
 //
 //	The from builder for method chaining
-func (b *ExternalTransitionsBuilder[S, E, P]) FromAmong(states ...S) FromInterface[S, E, P] {
-	fromBuilder := &FromBuilder[S, E, P, ToStep]{
+func (b *externalTransitionsBuilder[S, E, P]) FromAmong(states ...S) FromInterface[S, E, P] {
+	chain := &fromBuilder[S, E, P, toStep]{
 		stateMachine:   b.builder.stateMachine,
 		sourceIds:      states,
-		transitionType: External,
+		transitionType: external,
 	}
-	b.builder.track(fromBuilder)
-	return fromBuilder
+	b.builder.track(chain)
+	return chain
 }
 
-// ExternalParallelTransitionBuilder builds external parallel transitions
-type ExternalParallelTransitionBuilder[S comparable, E comparable, P any] struct {
+// externalParallelTransitionBuilder builds external parallel transitions
+type externalParallelTransitionBuilder[S comparable, E comparable, P any] struct {
 	builder *StateMachineBuilder[S, E, P]
 }
 
@@ -290,20 +289,20 @@ type ExternalParallelTransitionBuilder[S comparable, E comparable, P any] struct
 // Returns:
 //
 //	The parallel from builder for method chaining
-func (b *ExternalParallelTransitionBuilder[S, E, P]) From(state S) ParallelFromInterface[S, E, P] {
-	parallelBuilder := &ParallelFromBuilder[S, E, P, ToAmongStep]{
+func (b *externalParallelTransitionBuilder[S, E, P]) From(state S) ParallelFromInterface[S, E, P] {
+	chain := &parallelFromBuilder[S, E, P, toAmongStep]{
 		stateMachine:   b.builder.stateMachine,
 		sourceId:       state,
-		transitionType: External,
+		transitionType: external,
 	}
-	b.builder.track(parallelBuilder)
-	return parallelBuilder
+	b.builder.track(chain)
+	return chain
 }
 
-// ParallelFromBuilder builds the "from" part of a parallel transition
-type ParallelFromBuilder[S comparable, E comparable, P any, Next any] struct {
-	stateMachine   *StateMachineImpl[S, E, P]
-	transitionType TransitionType
+// parallelFromBuilder builds the "from" part of a parallel transition
+type parallelFromBuilder[S comparable, E comparable, P any, Next any] struct {
+	stateMachine   *stateMachineImpl[S, E, P]
+	transitionType transitionType
 	sourceId       S
 	targetIds      []S
 	event          E
@@ -320,9 +319,9 @@ type ParallelFromBuilder[S comparable, E comparable, P any, Next any] struct {
 // Returns:
 //
 //	The parallel from builder for method chaining
-func (b *ParallelFromBuilder[S, E, P, Next]) ToAmong(states ...S) ToInterface[S, E, P] {
+func (b *parallelFromBuilder[S, E, P, Next]) ToAmong(states ...S) ToInterface[S, E, P] {
 	b.targetIds = states
-	return (*ParallelFromBuilder[S, E, P, OnStep])(b)
+	return (*parallelFromBuilder[S, E, P, onStep])(b)
 }
 
 // On specifies the triggering event
@@ -333,9 +332,9 @@ func (b *ParallelFromBuilder[S, E, P, Next]) ToAmong(states ...S) ToInterface[S,
 // Returns:
 //
 //	The parallel from builder for method chaining
-func (b *ParallelFromBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
+func (b *parallelFromBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
 	b.event = event
-	return (*ParallelFromBuilder[S, E, P, WhenStep])(b)
+	return (*parallelFromBuilder[S, E, P, whenStep])(b)
 }
 
 // When specifies the condition for all transitions
@@ -346,9 +345,9 @@ func (b *ParallelFromBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
 // Returns:
 //
 //	The parallel from builder for method chaining
-func (b *ParallelFromBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInterface[S, E, P] {
+func (b *parallelFromBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInterface[S, E, P] {
 	b.condition = condition
-	return (*ParallelFromBuilder[S, E, P, PerformStep])(b)
+	return (*parallelFromBuilder[S, E, P, performStep])(b)
 }
 
 // WhenFunc specifies a function as the condition for all transitions
@@ -359,16 +358,16 @@ func (b *ParallelFromBuilder[S, E, P, Next]) When(condition Condition[P]) WhenIn
 // Returns:
 //
 //	The parallel from builder for method chaining
-func (b *ParallelFromBuilder[S, E, P, Next]) WhenFunc(conditionFunc func(payload P) bool) WhenInterface[S, E, P] {
+func (b *parallelFromBuilder[S, E, P, Next]) WhenFunc(conditionFunc func(payload P) bool) WhenInterface[S, E, P] {
 	b.condition = ConditionFunc[P](conditionFunc)
-	return (*ParallelFromBuilder[S, E, P, PerformStep])(b)
+	return (*parallelFromBuilder[S, E, P, performStep])(b)
 }
 
 // Perform specifies the action to execute during all transitions
 // Parameters:
 //
 //	action: The action to execute when the transitions occur
-func (b *ParallelFromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
+func (b *parallelFromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	b.action = action
 	b.done = true
 
@@ -378,9 +377,9 @@ func (b *ParallelFromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	// Create transitions to all target states
 	for _, targetId := range b.targetIds {
 		targetState := b.stateMachine.getOrCreateState(targetId)
-		transition := sourceState.AddTransition(b.event, targetState, b.transitionType)
-		transition.Condition = b.condition
-		transition.Action = b.action
+		transition := sourceState.addTransition(b.event, targetState, b.transitionType)
+		transition.condition = b.condition
+		transition.action = b.action
 		transition.parallel = true
 	}
 }
@@ -389,22 +388,22 @@ func (b *ParallelFromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 // Parameters:
 //
 //	actionFunc: The function to execute when the transitions occur
-func (b *ParallelFromBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to S, event E, payload P) error) {
+func (b *parallelFromBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to S, event E, payload P) error) {
 	b.Perform(ActionFunc[S, E, P](actionFunc))
 }
 
 // incomplete implements transitionChain
-func (b *ParallelFromBuilder[S, E, P, Next]) incomplete() string {
+func (b *parallelFromBuilder[S, E, P, Next]) incomplete() string {
 	if b.done {
 		return ""
 	}
 	return fmt.Sprintf("%v -[%v]-> %v", b.sourceId, b.event, b.targetIds)
 }
 
-// TransitionBuilder builds individual transitions
-type TransitionBuilder[S comparable, E comparable, P any, Next any] struct {
-	stateMachine   *StateMachineImpl[S, E, P]
-	transitionType TransitionType
+// transitionBuilder builds individual transitions
+type transitionBuilder[S comparable, E comparable, P any, Next any] struct {
+	stateMachine   *stateMachineImpl[S, E, P]
+	transitionType transitionType
 	sourceId       S
 	targetId       S
 	event          E
@@ -421,9 +420,9 @@ type TransitionBuilder[S comparable, E comparable, P any, Next any] struct {
 // Returns:
 //
 //	The transition builder for method chaining
-func (b *TransitionBuilder[S, E, P, Next]) From(state S) FromInterface[S, E, P] {
+func (b *transitionBuilder[S, E, P, Next]) From(state S) FromInterface[S, E, P] {
 	b.sourceId = state
-	return (*TransitionBuilder[S, E, P, ToStep])(b)
+	return (*transitionBuilder[S, E, P, toStep])(b)
 }
 
 // To specifies the target state
@@ -434,9 +433,9 @@ func (b *TransitionBuilder[S, E, P, Next]) From(state S) FromInterface[S, E, P] 
 // Returns:
 //
 //	The transition builder for method chaining
-func (b *TransitionBuilder[S, E, P, Next]) To(state S) ToInterface[S, E, P] {
+func (b *transitionBuilder[S, E, P, Next]) To(state S) ToInterface[S, E, P] {
 	b.targetId = state
-	return (*TransitionBuilder[S, E, P, OnStep])(b)
+	return (*transitionBuilder[S, E, P, onStep])(b)
 }
 
 // On specifies the triggering event
@@ -447,9 +446,9 @@ func (b *TransitionBuilder[S, E, P, Next]) To(state S) ToInterface[S, E, P] {
 // Returns:
 //
 //	The transition builder for method chaining
-func (b *TransitionBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
+func (b *transitionBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
 	b.event = event
-	return (*TransitionBuilder[S, E, P, WhenStep])(b)
+	return (*transitionBuilder[S, E, P, whenStep])(b)
 }
 
 // When specifies the condition for the transition
@@ -460,9 +459,9 @@ func (b *TransitionBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
 // Returns:
 //
 //	The transition builder for method chaining
-func (b *TransitionBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInterface[S, E, P] {
+func (b *transitionBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInterface[S, E, P] {
 	b.condition = condition
-	return (*TransitionBuilder[S, E, P, PerformStep])(b)
+	return (*transitionBuilder[S, E, P, performStep])(b)
 }
 
 // WhenFunc specifies a function as the condition for the transition
@@ -473,16 +472,16 @@ func (b *TransitionBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInte
 // Returns:
 //
 //	The transition builder for method chaining
-func (b *TransitionBuilder[S, E, P, Next]) WhenFunc(conditionFunc func(payload P) bool) WhenInterface[S, E, P] {
+func (b *transitionBuilder[S, E, P, Next]) WhenFunc(conditionFunc func(payload P) bool) WhenInterface[S, E, P] {
 	b.condition = ConditionFunc[P](conditionFunc)
-	return (*TransitionBuilder[S, E, P, PerformStep])(b)
+	return (*transitionBuilder[S, E, P, performStep])(b)
 }
 
 // Perform specifies the action to execute during the transition
 // Parameters:
 //
 //	action: The action to execute when the transition occurs
-func (b *TransitionBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
+func (b *transitionBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	b.action = action
 	b.done = true
 
@@ -491,31 +490,31 @@ func (b *TransitionBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	targetState := b.stateMachine.getOrCreateState(b.targetId)
 
 	// Create transition
-	transition := sourceState.AddTransition(b.event, targetState, b.transitionType)
-	transition.Condition = b.condition
-	transition.Action = b.action
+	transition := sourceState.addTransition(b.event, targetState, b.transitionType)
+	transition.condition = b.condition
+	transition.action = b.action
 }
 
 // PerformFunc specifies a function as the action to execute during the transition
 // Parameters:
 //
 //	actionFunc: The function to execute when the transition occurs
-func (b *TransitionBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to S, event E, payload P) error) {
+func (b *transitionBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to S, event E, payload P) error) {
 	b.Perform(ActionFunc[S, E, P](actionFunc))
 }
 
 // incomplete implements transitionChain
-func (b *TransitionBuilder[S, E, P, Next]) incomplete() string {
+func (b *transitionBuilder[S, E, P, Next]) incomplete() string {
 	if b.done {
 		return ""
 	}
 	return fmt.Sprintf("%v -[%v]-> %v", b.sourceId, b.event, b.targetId)
 }
 
-// FromBuilder builds the "from" part of multiple transitions
-type FromBuilder[S comparable, E comparable, P any, Next any] struct {
-	stateMachine   *StateMachineImpl[S, E, P]
-	transitionType TransitionType
+// fromBuilder builds the "from" part of multiple transitions
+type fromBuilder[S comparable, E comparable, P any, Next any] struct {
+	stateMachine   *stateMachineImpl[S, E, P]
+	transitionType transitionType
 	sourceIds      []S
 	targetId       S
 	event          E
@@ -532,9 +531,9 @@ type FromBuilder[S comparable, E comparable, P any, Next any] struct {
 // Returns:
 //
 //	The from builder for method chaining
-func (b *FromBuilder[S, E, P, Next]) To(state S) ToInterface[S, E, P] {
+func (b *fromBuilder[S, E, P, Next]) To(state S) ToInterface[S, E, P] {
 	b.targetId = state
-	return (*FromBuilder[S, E, P, OnStep])(b)
+	return (*fromBuilder[S, E, P, onStep])(b)
 }
 
 // On specifies the triggering event
@@ -545,9 +544,9 @@ func (b *FromBuilder[S, E, P, Next]) To(state S) ToInterface[S, E, P] {
 // Returns:
 //
 //	The from builder for method chaining
-func (b *FromBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
+func (b *fromBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
 	b.event = event
-	return (*FromBuilder[S, E, P, WhenStep])(b)
+	return (*fromBuilder[S, E, P, whenStep])(b)
 }
 
 // When specifies the condition for all transitions
@@ -558,9 +557,9 @@ func (b *FromBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
 // Returns:
 //
 //	The from builder for method chaining
-func (b *FromBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInterface[S, E, P] {
+func (b *fromBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInterface[S, E, P] {
 	b.condition = condition
-	return (*FromBuilder[S, E, P, PerformStep])(b)
+	return (*fromBuilder[S, E, P, performStep])(b)
 }
 
 // WhenFunc specifies a function as the condition for all transitions
@@ -571,16 +570,16 @@ func (b *FromBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInterface[
 // Returns:
 //
 //	The from builder for method chaining
-func (b *FromBuilder[S, E, P, Next]) WhenFunc(conditionFunc func(payload P) bool) WhenInterface[S, E, P] {
+func (b *fromBuilder[S, E, P, Next]) WhenFunc(conditionFunc func(payload P) bool) WhenInterface[S, E, P] {
 	b.condition = ConditionFunc[P](conditionFunc)
-	return (*FromBuilder[S, E, P, PerformStep])(b)
+	return (*fromBuilder[S, E, P, performStep])(b)
 }
 
 // Perform specifies the action to execute during all transitions
 // Parameters:
 //
 //	action: The action to execute when the transitions occur
-func (b *FromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
+func (b *fromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	b.action = action
 	b.done = true
 
@@ -590,9 +589,9 @@ func (b *FromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	// Create transitions from all source states
 	for _, sourceId := range b.sourceIds {
 		sourceState := b.stateMachine.getOrCreateState(sourceId)
-		transition := sourceState.AddTransition(b.event, targetState, b.transitionType)
-		transition.Condition = b.condition
-		transition.Action = b.action
+		transition := sourceState.addTransition(b.event, targetState, b.transitionType)
+		transition.condition = b.condition
+		transition.action = b.action
 	}
 }
 
@@ -600,20 +599,20 @@ func (b *FromBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 // Parameters:
 //
 //	actionFunc: The function to execute when the transitions occur
-func (b *FromBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to S, event E, payload P) error) {
+func (b *fromBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to S, event E, payload P) error) {
 	b.Perform(ActionFunc[S, E, P](actionFunc))
 }
 
 // incomplete implements transitionChain
-func (b *FromBuilder[S, E, P, Next]) incomplete() string {
+func (b *fromBuilder[S, E, P, Next]) incomplete() string {
 	if b.done {
 		return ""
 	}
 	return fmt.Sprintf("%v -[%v]-> %v", b.sourceIds, b.event, b.targetId)
 }
 
-// InternalTransitionBuilder builds internal transitions
-type InternalTransitionBuilder[S comparable, E comparable, P any] struct {
+// internalTransitionBuilder builds internal transitions
+type internalTransitionBuilder[S comparable, E comparable, P any] struct {
 	builder *StateMachineBuilder[S, E, P]
 }
 
@@ -625,24 +624,24 @@ type InternalTransitionBuilder[S comparable, E comparable, P any] struct {
 // Returns:
 //
 //	The internal transition builder for method chaining
-func (b *InternalTransitionBuilder[S, E, P]) Within(state S) ToInterface[S, E, P] {
-	onBuilder := &OnTransitionBuilder[S, E, P, OnStep]{
+func (b *internalTransitionBuilder[S, E, P]) Within(state S) ToInterface[S, E, P] {
+	chain := &onTransitionBuilder[S, E, P, onStep]{
 		stateMachine:   b.builder.stateMachine,
 		stateId:        state,
-		transitionType: Internal,
+		transitionType: internal,
 	}
-	b.builder.track(onBuilder)
-	return onBuilder
+	b.builder.track(chain)
+	return chain
 }
 
-// OnTransitionBuilder builds the "on" part of an internal transition
-type OnTransitionBuilder[S comparable, E comparable, P any, Next any] struct {
-	stateMachine   *StateMachineImpl[S, E, P]
+// onTransitionBuilder builds the "on" part of an internal transition
+type onTransitionBuilder[S comparable, E comparable, P any, Next any] struct {
+	stateMachine   *stateMachineImpl[S, E, P]
 	stateId        S
 	event          E
 	condition      Condition[P]
 	action         Action[S, E, P]
-	transitionType TransitionType
+	transitionType transitionType
 	done           bool
 }
 
@@ -654,9 +653,9 @@ type OnTransitionBuilder[S comparable, E comparable, P any, Next any] struct {
 // Returns:
 //
 //	The on transition builder for method chaining
-func (b *OnTransitionBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
+func (b *onTransitionBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
 	b.event = event
-	return (*OnTransitionBuilder[S, E, P, WhenStep])(b)
+	return (*onTransitionBuilder[S, E, P, whenStep])(b)
 }
 
 // When specifies the condition for the transition
@@ -667,9 +666,9 @@ func (b *OnTransitionBuilder[S, E, P, Next]) On(event E) OnInterface[S, E, P] {
 // Returns:
 //
 //	The on transition builder for method chaining
-func (b *OnTransitionBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInterface[S, E, P] {
+func (b *onTransitionBuilder[S, E, P, Next]) When(condition Condition[P]) WhenInterface[S, E, P] {
 	b.condition = condition
-	return (*OnTransitionBuilder[S, E, P, PerformStep])(b)
+	return (*onTransitionBuilder[S, E, P, performStep])(b)
 }
 
 // WhenFunc specifies a function as the condition for the transition
@@ -680,16 +679,16 @@ func (b *OnTransitionBuilder[S, E, P, Next]) When(condition Condition[P]) WhenIn
 // Returns:
 //
 //	The on transition builder for method chaining
-func (b *OnTransitionBuilder[S, E, P, Next]) WhenFunc(conditionFunc func(payload P) bool) WhenInterface[S, E, P] {
+func (b *onTransitionBuilder[S, E, P, Next]) WhenFunc(conditionFunc func(payload P) bool) WhenInterface[S, E, P] {
 	b.condition = ConditionFunc[P](conditionFunc)
-	return (*OnTransitionBuilder[S, E, P, PerformStep])(b)
+	return (*onTransitionBuilder[S, E, P, performStep])(b)
 }
 
 // Perform specifies the action to execute during the transition
 // Parameters:
 //
 //	action: The action to execute when the transition occurs
-func (b *OnTransitionBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
+func (b *onTransitionBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	b.action = action
 	b.done = true
 
@@ -697,21 +696,21 @@ func (b *OnTransitionBuilder[S, E, P, Next]) Perform(action Action[S, E, P]) {
 	state := b.stateMachine.getOrCreateState(b.stateId)
 
 	// Create internal transition
-	transition := state.AddTransition(b.event, state, b.transitionType)
-	transition.Condition = b.condition
-	transition.Action = b.action
+	transition := state.addTransition(b.event, state, b.transitionType)
+	transition.condition = b.condition
+	transition.action = b.action
 }
 
 // PerformFunc specifies a function as the action to execute during the transition
 // Parameters:
 //
 //	actionFunc: The function to execute when the transition occurs
-func (b *OnTransitionBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to S, event E, payload P) error) {
+func (b *onTransitionBuilder[S, E, P, Next]) PerformFunc(actionFunc func(from, to S, event E, payload P) error) {
 	b.Perform(ActionFunc[S, E, P](actionFunc))
 }
 
 // incomplete implements transitionChain
-func (b *OnTransitionBuilder[S, E, P, Next]) incomplete() string {
+func (b *onTransitionBuilder[S, E, P, Next]) incomplete() string {
 	if b.done {
 		return ""
 	}

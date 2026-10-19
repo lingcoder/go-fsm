@@ -30,7 +30,7 @@ func escapeLabel(escaper *strings.Replacer, v any) string {
 // If formats is nil or empty, defaults to PlantUML
 // If multiple formats are provided, returns all requested formats concatenated
 // States and transitions are sorted by name, so the output is stable
-func (sm *StateMachineImpl[S, E, P]) GenerateDiagram(formats ...DiagramFormat) string {
+func (sm *stateMachineImpl[S, E, P]) GenerateDiagram(formats ...DiagramFormat) string {
 	if len(formats) == 0 {
 		return sm.generatePlantUML()
 	}
@@ -60,7 +60,7 @@ func (sm *StateMachineImpl[S, E, P]) GenerateDiagram(formats ...DiagramFormat) s
 
 // stateAliases returns the states sorted by name and a diagram identifier for each
 // that is valid whatever the state's name
-func (sm *StateMachineImpl[S, E, P]) stateAliases(prefix string) ([]S, map[S]string) {
+func (sm *stateMachineImpl[S, E, P]) stateAliases(prefix string) ([]S, map[S]string) {
 	states := sortedKeys(sm.stateMap)
 	aliases := make(map[S]string, len(states))
 	for i, stateId := range states {
@@ -70,7 +70,7 @@ func (sm *StateMachineImpl[S, E, P]) stateAliases(prefix string) ([]S, map[S]str
 }
 
 // generatePlantUML returns a PlantUML diagram of the state machine
-func (sm *StateMachineImpl[S, E, P]) generatePlantUML() string {
+func (sm *stateMachineImpl[S, E, P]) generatePlantUML() string {
 	states, aliases := sm.stateAliases("s")
 
 	var sb strings.Builder
@@ -83,9 +83,9 @@ func (sm *StateMachineImpl[S, E, P]) generatePlantUML() string {
 	}
 
 	// Define transitions
-	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+	sm.forEachTransition(func(transition *transitionImpl[S, E, P]) {
 		fmt.Fprintf(&sb, "%s --> %s : %s\n",
-			aliases[transition.Source.id], aliases[transition.Target.id], escapeLabel(plantUMLEscaper, transition.Event))
+			aliases[transition.source.id], aliases[transition.target.id], escapeLabel(plantUMLEscaper, transition.event))
 	})
 
 	sb.WriteString("@enduml\n")
@@ -93,7 +93,7 @@ func (sm *StateMachineImpl[S, E, P]) generatePlantUML() string {
 }
 
 // generateMarkdownTable returns a Markdown table representation of the state machine
-func (sm *StateMachineImpl[S, E, P]) generateMarkdownTable() string {
+func (sm *stateMachineImpl[S, E, P]) generateMarkdownTable() string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# State Machine: %s\n\n", escapeLabel(markdownTextEscaper, sm.id))
 
@@ -109,15 +109,15 @@ func (sm *StateMachineImpl[S, E, P]) generateMarkdownTable() string {
 	sb.WriteString("| Source State | Event | Target State | Type |\n")
 	sb.WriteString("|-------------|-------|--------------|------|\n")
 
-	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+	sm.forEachTransition(func(transition *transitionImpl[S, E, P]) {
 		transType := "External"
-		if transition.TransType == Internal {
+		if transition.transType == internal {
 			transType = "Internal"
 		}
 		fmt.Fprintf(&sb, "| `%s` | `%s` | `%s` | %s |\n",
-			escapeLabel(markdownCellEscaper, transition.Source.id),
-			escapeLabel(markdownCellEscaper, transition.Event),
-			escapeLabel(markdownCellEscaper, transition.Target.id),
+			escapeLabel(markdownCellEscaper, transition.source.id),
+			escapeLabel(markdownCellEscaper, transition.event),
+			escapeLabel(markdownCellEscaper, transition.target.id),
 			transType)
 	})
 
@@ -125,7 +125,7 @@ func (sm *StateMachineImpl[S, E, P]) generateMarkdownTable() string {
 }
 
 // generateMarkdownFlow returns a Mermaid flowchart diagram in Markdown format
-func (sm *StateMachineImpl[S, E, P]) generateMarkdownFlow() string {
+func (sm *stateMachineImpl[S, E, P]) generateMarkdownFlow() string {
 	states, aliases := sm.stateAliases("state_")
 
 	var sb strings.Builder
@@ -137,9 +137,9 @@ func (sm *StateMachineImpl[S, E, P]) generateMarkdownFlow() string {
 	}
 
 	// Define transitions; quoted labels may contain the | that delimits them
-	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+	sm.forEachTransition(func(transition *transitionImpl[S, E, P]) {
 		fmt.Fprintf(&sb, "    %s -->|\"%s\"| %s\n",
-			aliases[transition.Source.id], escapeLabel(mermaidEscaper, transition.Event), aliases[transition.Target.id])
+			aliases[transition.source.id], escapeLabel(mermaidEscaper, transition.event), aliases[transition.target.id])
 	})
 
 	sb.WriteString("```\n")
@@ -147,7 +147,7 @@ func (sm *StateMachineImpl[S, E, P]) generateMarkdownFlow() string {
 }
 
 // generateMarkdownStateDiagram returns a Mermaid state diagram in Markdown format
-func (sm *StateMachineImpl[S, E, P]) generateMarkdownStateDiagram() string {
+func (sm *stateMachineImpl[S, E, P]) generateMarkdownStateDiagram() string {
 	states, aliases := sm.stateAliases("s")
 
 	var sb strings.Builder
@@ -159,13 +159,13 @@ func (sm *StateMachineImpl[S, E, P]) generateMarkdownStateDiagram() string {
 	}
 
 	// Define transitions
-	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+	sm.forEachTransition(func(transition *transitionImpl[S, E, P]) {
 		marker := ""
-		if transition.TransType == Internal {
+		if transition.transType == internal {
 			marker = " [internal]"
 		}
 		fmt.Fprintf(&sb, "    %s --> %s : %s%s\n",
-			aliases[transition.Source.id], aliases[transition.Target.id], escapeLabel(mermaidEscaper, transition.Event), marker)
+			aliases[transition.source.id], aliases[transition.target.id], escapeLabel(mermaidEscaper, transition.event), marker)
 	})
 
 	sb.WriteString("```\n")

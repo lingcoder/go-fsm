@@ -1280,43 +1280,20 @@ func TestRemoveStateMachine_NotFound(t *testing.T) {
 
 // ==================== Low-level API Tests ====================
 
-// TestAddParallelTransitions tests the AddParallelTransitions method directly
-func TestAddParallelTransitions(t *testing.T) {
-	stateA := NewState[testState, testEvent, testPayload](StateA)
-	stateB := NewState[testState, testEvent, testPayload](StateB)
-	stateC := NewState[testState, testEvent, testPayload](StateC)
-
-	transitions := stateA.AddParallelTransitions(Event1, []*State[testState, testEvent, testPayload]{stateB, stateC}, External)
-
-	if len(transitions) != 2 {
-		t.Errorf("Expected 2 transitions, got %d", len(transitions))
-	}
-
-	// Verify transitions are correctly set up
-	for _, tr := range transitions {
-		if tr.Source != stateA {
-			t.Error("Source should be StateA")
-		}
-		if tr.Event != Event1 {
-			t.Error("Event should be Event1")
-		}
-	}
-}
-
 // TestTransit_InvalidInternalTransition tests Transit with mismatched source/target for internal transition
 func TestTransit_InvalidInternalTransition(t *testing.T) {
-	stateA := NewState[testState, testEvent, testPayload](StateA)
-	stateB := NewState[testState, testEvent, testPayload](StateB)
+	stateA := newState[testState, testEvent, testPayload](StateA)
+	stateB := newState[testState, testEvent, testPayload](StateB)
 
 	// Manually create an invalid internal transition (source != target)
-	transition := &Transition[testState, testEvent, testPayload]{
-		Source:    stateA,
-		Target:    stateB, // Different from source - invalid for Internal type
-		Event:     Event1,
-		TransType: Internal,
+	transition := &transitionImpl[testState, testEvent, testPayload]{
+		source:    stateA,
+		target:    stateB, // Different from source - invalid for Internal type
+		event:     Event1,
+		transType: internal,
 	}
 
-	_, err := transition.Transit(testPayload{}, false)
+	_, err := transition.transit(testPayload{}, false)
 	if !errors.Is(err, ErrInternalTransition) {
 		t.Errorf("Expected ErrInternalTransition, got %v", err)
 	}
@@ -1346,20 +1323,20 @@ func TestShowStateMachine_WithInternalTransition(t *testing.T) {
 
 // TestTransit_NoAction tests Transit when there is no action defined
 func TestTransit_NoAction(t *testing.T) {
-	stateA := NewState[testState, testEvent, testPayload](StateA)
-	stateB := NewState[testState, testEvent, testPayload](StateB)
+	stateA := newState[testState, testEvent, testPayload](StateA)
+	stateB := newState[testState, testEvent, testPayload](StateB)
 
 	// Create transition without action
-	transition := &Transition[testState, testEvent, testPayload]{
-		Source:    stateA,
-		Target:    stateB,
-		Event:     Event1,
-		TransType: External,
-		Condition: nil,
-		Action:    nil, // No action
+	transition := &transitionImpl[testState, testEvent, testPayload]{
+		source:    stateA,
+		target:    stateB,
+		event:     Event1,
+		transType: external,
+		condition: nil,
+		action:    nil, // No action
 	}
 
-	result, err := transition.Transit(testPayload{}, true)
+	result, err := transition.transit(testPayload{}, true)
 	if err != nil {
 		t.Errorf("Transit should succeed without action, got error: %v", err)
 	}
@@ -1370,20 +1347,20 @@ func TestTransit_NoAction(t *testing.T) {
 
 // TestTransit_ConditionNotSatisfied tests Transit when condition returns false
 func TestTransit_ConditionNotSatisfied(t *testing.T) {
-	stateA := NewState[testState, testEvent, testPayload](StateA)
-	stateB := NewState[testState, testEvent, testPayload](StateB)
+	stateA := newState[testState, testEvent, testPayload](StateA)
+	stateB := newState[testState, testEvent, testPayload](StateB)
 
 	// Create transition with condition that returns false
-	transition := &Transition[testState, testEvent, testPayload]{
-		Source:    stateA,
-		Target:    stateB,
-		Event:     Event1,
-		TransType: External,
-		Condition: ConditionFunc[testPayload](func(p testPayload) bool { return false }),
-		Action:    nil,
+	transition := &transitionImpl[testState, testEvent, testPayload]{
+		source:    stateA,
+		target:    stateB,
+		event:     Event1,
+		transType: external,
+		condition: ConditionFunc[testPayload](func(p testPayload) bool { return false }),
+		action:    nil,
 	}
 
-	result, err := transition.Transit(testPayload{}, true)
+	result, err := transition.transit(testPayload{}, true)
 	if err != nil {
 		t.Errorf("Transit should not error when condition not met, got: %v", err)
 	}
