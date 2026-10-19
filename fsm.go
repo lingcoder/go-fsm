@@ -2,6 +2,8 @@ package fsm
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 )
 
 // StateMachine is a generic state machine interface.
@@ -230,30 +232,49 @@ func newStateMachine[S comparable, E comparable, P any](id string) *StateMachine
 func (sm *StateMachineImpl[S, E, P]) snapshot(id string) *StateMachineImpl[S, E, P] {
 	clone := newStateMachine[S, E, P](id)
 	for stateId := range sm.stateMap {
-		clone.stateMap[stateId] = NewState[S, E, P](stateId)
+		clone.getOrCreateState(stateId)
 	}
 
 	for stateId, state := range sm.stateMap {
 		source := clone.stateMap[stateId]
 		for event, transitions := range state.eventTransitions {
-			copied := make([]*Transition[S, E, P], 0, len(transitions))
+			// Keep the order within an event: FireEvent tries transitions in definition order
 			for _, t := range transitions {
-				copied = append(copied, &Transition[S, E, P]{
-					Source:    source,
-					Target:    clone.stateMap[t.Target.id],
-					Event:     t.Event,
-					Condition: t.Condition,
-					Action:    t.Action,
-					TransType: t.TransType,
-					parallel:  t.parallel,
-				})
+				copied := source.AddTransition(event, clone.stateMap[t.Target.id], t.TransType)
+				copied.Condition = t.Condition
+				copied.Action = t.Action
+				copied.parallel = t.parallel
 			}
-			source.eventTransitions[event] = copied
 		}
 	}
 
 	clone.ready = true
 	return clone
+}
+
+// forEachTransition calls fn for every transition, with states and events sorted by name
+// so output is stable even though Go randomizes map iteration order
+func (sm *StateMachineImpl[S, E, P]) forEachTransition(fn func(transition *Transition[S, E, P])) {
+	for _, stateId := range sortedKeys(sm.stateMap) {
+		state := sm.stateMap[stateId]
+		for _, event := range sortedKeys(state.eventTransitions) {
+			for _, transition := range state.eventTransitions[event] {
+				fn(transition)
+			}
+		}
+	}
+}
+
+// sortedKeys returns the keys of m sorted by their string form, since keys are only comparable
+func sortedKeys[K comparable, V any](m map[K]V) []K {
+	keys := make([]K, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return fmt.Sprint(keys[i]) < fmt.Sprint(keys[j])
+	})
+	return keys
 }
 
 // FireEvent triggers a state transition based on the current state and event
@@ -380,20 +401,17 @@ func (sm *StateMachineImpl[S, E, P]) getOrCreateState(stateId S) *State[S, E, P]
 
 // ShowStateMachine returns a string representation of the state machine
 func (sm *StateMachineImpl[S, E, P]) ShowStateMachine() string {
-	result := fmt.Sprintf("StateMachine(id=%s):\n", sm.id)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "StateMachine(id=%s):\n", sm.id)
 
-	for _, state := range sm.stateMap {
-		for event, transitions := range state.eventTransitions {
-			for _, transition := range transitions {
-				transType := "EXTERNAL"
-				if transition.TransType == Internal {
-					transType = "INTERNAL"
-				}
-				result += fmt.Sprintf("  %v --%v(%s)--> %v\n",
-					transition.Source.GetID(), event, transType, transition.Target.GetID())
-			}
+	sm.forEachTransition(func(transition *Transition[S, E, P]) {
+		transType := "EXTERNAL"
+		if transition.TransType == Internal {
+			transType = "INTERNAL"
 		}
-	}
+		fmt.Fprintf(&sb, "  %v --%v(%s)--> %v\n",
+			transition.Source.GetID(), transition.Event, transType, transition.Target.GetID())
+	})
 
-	return result
+	return sb.String()
 }

@@ -202,6 +202,8 @@ diagrams := stateMachine.GenerateDiagram(fsm.PlantUML, fsm.MarkdownTable, fsm.Ma
 fmt.Println(diagrams)
 ```
 
+States and transitions are sorted by name, so the output is stable across runs. State and event names may contain spaces, quotes or `|`: diagrams use generated node IDs and escape the labels.
+
 ## 📄 License
 
 [MIT](LICENSE) © LingCoder

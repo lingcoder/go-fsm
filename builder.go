@@ -213,9 +213,11 @@ func (b *StateMachineBuilder[S, E, P]) validate() error {
 		return ErrNoTransitionsDefined
 	}
 
-	for _, state := range b.stateMachine.stateMap {
-		for event, transitions := range state.eventTransitions {
-			if err := validateTransitions(state.id, event, transitions); err != nil {
+	// Walk in sorted order so the first error reported is stable
+	for _, stateId := range sortedKeys(b.stateMachine.stateMap) {
+		state := b.stateMachine.stateMap[stateId]
+		for _, event := range sortedKeys(state.eventTransitions) {
+			if err := validateTransitions(stateId, event, state.eventTransitions[event]); err != nil {
 				return err
 			}
 		}
